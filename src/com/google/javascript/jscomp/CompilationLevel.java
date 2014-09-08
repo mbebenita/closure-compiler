@@ -46,6 +46,11 @@ public enum CompilationLevel {
    * names and variables, removing code which is never called, etc.
    */
   ADVANCED_OPTIMIZATIONS,
+
+  /**
+   * SHUMWAY_OPTIMIZATIONS applies optimizations that are known to work for Shumway.
+   */
+  SHUMWAY_OPTIMIZATIONS,
   ;
 
   private CompilationLevel() {}
@@ -60,6 +65,9 @@ public enum CompilationLevel {
         break;
       case ADVANCED_OPTIMIZATIONS:
         applyFullCompilationOptions(options);
+        break;
+      case SHUMWAY_OPTIMIZATIONS:_OPTIMIZATIONS:
+        applyShumwayCompilationOptions(options);
         break;
       default:
         throw new RuntimeException("Unknown compilation level.");
@@ -146,6 +154,61 @@ public enum CompilationLevel {
     options.reserveRawExports = true;
     options.setRenamingPolicy(
         VariableRenamingPolicy.ALL, PropertyRenamingPolicy.ALL_UNQUOTED);
+    options.shadowVariables = true;
+    options.removeUnusedPrototypeProperties = true;
+    options.removeUnusedPrototypePropertiesInExterns = true;
+    options.removeUnusedClassProperties = true;
+    options.collapseAnonymousFunctions = true;
+    options.collapseProperties = true;
+    options.checkGlobalThisLevel = CheckLevel.WARNING;
+    options.rewriteFunctionExpressions = false;
+    options.smartNameRemoval = true;
+    options.inlineConstantVars = true;
+    options.setInlineFunctions(Reach.ALL);
+    options.setAssumeClosuresOnlyCaptureReferences(false);
+    options.inlineGetters = true;
+    options.setInlineVariables(Reach.ALL);
+    options.flowSensitiveInlineVariables = true;
+    options.computeFunctionSideEffects = true;
+
+    // Remove unused vars also removes unused functions.
+    options.setRemoveUnusedVariables(Reach.ALL);
+
+    // Move code around based on the defined modules.
+    options.crossModuleCodeMotion = true;
+    options.crossModuleMethodMotion = true;
+
+    // Call optimizations
+    options.devirtualizePrototypeMethods = true;
+    options.optimizeParameters = true;
+    options.optimizeReturns = true;
+    options.optimizeCalls = true;
+  }
+
+  private static void applyShumwayCompilationOptions(CompilerOptions options) {
+    // Do not call applySafeCompilationOptions(options) because the call can
+    // create possible conflicts between multiple diagnostic groups.
+
+    // All the safe optimizations.
+    options.dependencyOptions.setDependencySorting(true);
+    options.closurePass = true;
+    options.foldConstants = true;
+    options.coalesceVariableNames = true;
+    options.deadAssignmentElimination = true;
+    options.extractPrototypeMemberDeclarations = true;
+    options.collapseVariableDeclarations = true;
+    options.convertToDottedProperties = true;
+    options.labelRenaming = true;
+    options.removeDeadCode = true;
+    options.optimizeArgumentsArray = true;
+    options.collapseObjectLiterals = true;
+    options.protectHiddenSideEffects = true;
+
+    // All the advanced optimizations.
+    options.removeClosureAsserts = true;
+    options.reserveRawExports = true;
+    options.setRenamingPolicy(
+            VariableRenamingPolicy.ALL, PropertyRenamingPolicy.ALL_UNQUOTED);
     options.shadowVariables = true;
     options.removeUnusedPrototypeProperties = true;
     options.removeUnusedPrototypePropertiesInExterns = true;

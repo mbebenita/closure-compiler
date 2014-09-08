@@ -482,17 +482,14 @@ public class CommandLineRunner extends
     private List<String> arguments = new ArrayList<>();
 
     private static final Map<String, CompilationLevel> COMPILATION_LEVEL_MAP =
-        ImmutableMap.of(
-            "WHITESPACE_ONLY",
-            CompilationLevel.WHITESPACE_ONLY,
-            "SIMPLE",
-            CompilationLevel.SIMPLE_OPTIMIZATIONS,
-            "SIMPLE_OPTIMIZATIONS",
-            CompilationLevel.SIMPLE_OPTIMIZATIONS,
-            "ADVANCED",
-            CompilationLevel.ADVANCED_OPTIMIZATIONS,
-            "ADVANCED_OPTIMIZATIONS",
-            CompilationLevel.ADVANCED_OPTIMIZATIONS);
+        ImmutableMap.<String, CompilationLevel>builder()
+            .put("WHITESPACE_ONLY", CompilationLevel.WHITESPACE_ONLY)
+            .put("SIMPLE", CompilationLevel.SIMPLE_OPTIMIZATIONS)
+            .put("SIMPLE_OPTIMIZATIONS", CompilationLevel.SIMPLE_OPTIMIZATIONS)
+            .put("ADVANCED", CompilationLevel.ADVANCED_OPTIMIZATIONS)
+            .put("ADVANCED_OPTIMIZATIONS", CompilationLevel.ADVANCED_OPTIMIZATIONS)
+            .put("SHUMWAY_OPTIMIZATIONS", CompilationLevel.SHUMWAY_OPTIMIZATIONS)
+            .build();
 
     /**
      * Parse the given args list.
