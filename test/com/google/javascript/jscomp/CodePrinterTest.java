@@ -35,11 +35,13 @@ public class CodePrinterTest extends TestCase {
   private boolean allowWarnings = false;
 
   private boolean trustedStrings = true;
+  private boolean preserveTypeAnnotations = false;
   private Compiler lastCompiler = null;
   private LanguageMode languageMode = LanguageMode.ECMASCRIPT5;
 
   @Override public void setUp() {
     allowWarnings = false;
+    preserveTypeAnnotations = false;
     trustedStrings = true;
     lastCompiler = null;
     languageMode = LanguageMode.ECMASCRIPT5;
@@ -54,6 +56,7 @@ public class CodePrinterTest extends TestCase {
     lastCompiler = compiler;
     CompilerOptions options = new CompilerOptions();
     options.setTrustedStrings(trustedStrings);
+    options.preserveTypeAnnotations = preserveTypeAnnotations;
 
     // Allow getters and setters.
     options.setLanguageIn(languageMode);
@@ -104,6 +107,7 @@ public class CodePrinterTest extends TestCase {
   CompilerOptions newCompilerOptions(boolean prettyprint, int lineThreshold) {
     CompilerOptions options = new CompilerOptions();
     options.setTrustedStrings(trustedStrings);
+    options.preserveTypeAnnotations = preserveTypeAnnotations;
     options.setLanguageOut(languageMode);
     options.setPrettyPrint(prettyprint);
     options.setLineLengthThreshold(lineThreshold);
@@ -369,22 +373,6 @@ public class CodePrinterTest extends TestCase {
     assertPrint("if(x){;;function y(){};;}", "if(x){function y(){}}");
   }
 
-  public void testPrintArrayComprehension() {
-    languageMode = LanguageMode.ECMASCRIPT6;
-    assertPrintSame("[for(foo of bar)baz()]");
-    assertPrintSame("[for(n of nums)if(prime(n))n*n]");
-    assertPrintSame("[for(a of b)for(c of d)if(c>a)a+c]");
-    assertPrintSame("[for({x,y}of z)x+y]");
-  }
-
-  public void testPrintGeneratorComprehension() {
-    languageMode = LanguageMode.ECMASCRIPT6;
-    assertPrintSame("(for(foo of bar)baz())");
-    assertPrintSame("(for(n of nums)if(prime(n))n*n)");
-    assertPrintSame("(for(a of b)for(c of d)if(c>a)a+c)");
-    assertPrintSame("(for({x,y}of z)x+y)");
-  }
-
   public void testPrintArrayPatternVar() {
     languageMode = LanguageMode.ECMASCRIPT6;
     assertPrintSame("var []=[]");
@@ -437,6 +425,13 @@ public class CodePrinterTest extends TestCase {
     assertPrintSame("[a,,c,,e]=[1,2,3,4,5]");
   }
 
+  public void testPrintArrayPatternWithInitializer() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("[x=1]=[]");
+    assertPrintSame("[a,,c=2,,e]=[1,2,3,4,5]");
+    assertPrintSame("[a=1,b=2,c=3]=foo()");
+  }
+
   public void testPrintNestedArrayPattern() {
     languageMode = LanguageMode.ECMASCRIPT6;
     assertPrintSame("var [a,[b,c],d]=[1,[2,3],4]");
@@ -478,6 +473,15 @@ public class CodePrinterTest extends TestCase {
     languageMode = LanguageMode.ECMASCRIPT6;
     assertPrintSame("({a:{b,c}})=foo()");
     assertPrintSame("({a:{b:{c:{d}}}})=foo()");
+  }
+
+  public void testPrintObjectPatternInitializer() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+    assertPrintSame("({a=1})=foo()");
+    assertPrintSame("({a:{b=2}})=foo()");
+    assertPrintSame("({a:b=2})=foo()");
+    assertPrintSame("({a,b:{c=2}})=foo()");
+    assertPrintSame("({a:{b=2},c})=foo()");
   }
 
   public void testPrintMixedDestructuring() {
@@ -1521,10 +1525,27 @@ public class CodePrinterTest extends TestCase {
     assertPrintSame("var a={b,c(){},d,e:f}");
   }
 
-  public void testComputedProps() {
+  public void testComputedProperties() {
     languageMode = LanguageMode.ECMASCRIPT6;
+
     assertPrintSame("var a={[b]:c}");
     assertPrintSame("var a={[b+3]:c}");
+
+    assertPrintSame("var a={[b](){}}");
+    assertPrintSame("var a={[b](){alert(foo)}}");
+    assertPrintSame("var a={*[b](){yield\"foo\"}}");
+    assertPrintSame("var a={[b]:(()=>c)}");
+
+    assertPrintSame("var a={get [b](){return null}}");
+    assertPrintSame("var a={set [b](val){window.b=val}}");
+  }
+
+  public void testComputedPropertiesClassMethods() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+
+    assertPrintSame("class C{[m](){}}");
+
+    assertPrintSame("class C{[\"foo\"+bar](){alert(1)}}");
   }
 
   public void testGetter() {
@@ -1844,6 +1865,16 @@ public class CodePrinterTest extends TestCase {
     assertPrintSame("3*(4%3*5)");
   }
 
+  public void testPreserveTypeAnnotations() {
+    preserveTypeAnnotations = true;
+    assertPrintSame("/**@type {foo} */var bar");
+    assertPrintSame(
+        "function/** void */f(/** string */s,/** number */n){}");
+
+    preserveTypeAnnotations = false;
+    assertPrint("/** @type {foo} */\nvar bar;", "var bar");
+  }
+
   public void testDefaultParameters() {
     languageMode = LanguageMode.ECMASCRIPT6;
     assertPrintSame("function f(a=0){}");
@@ -1918,6 +1949,7 @@ public class CodePrinterTest extends TestCase {
   public void testMemberGeneratorYield1() {
     languageMode = LanguageMode.ECMASCRIPT6;
     assertPrintSame("class C{*member(){(yield 1)+(yield 1)}}");
+    assertPrintSame("var obj={*member(){(yield 1)+(yield 1)}}");
   }
 
   public void testArrowFunction() {

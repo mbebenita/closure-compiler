@@ -85,6 +85,18 @@ public class RescopeGlobalSymbolsTest extends CompilerTestCase {
     test(createModules(
         "var a, b = 1;", "b"),
         new String[] {"var a;_.b = 1;", "_.b"});
+    test(createModules(
+        "var a, b = 1, c = 2;", "b"),
+        new String[] {"var a, c;_.b = 1;c = 2", "_.b"});
+    test(createModules(
+        "var a, b = 1, c = 2;", "a"),
+        new String[] {"var b, c;b = 1;c = 2", "_.a"});
+    test(createModules(
+        "var a=1; var b=2,c=3;", "a;c;"),
+        new String[] {"var b;_.a=1;b=2;_.c=3", "_.a;_.c"});
+    test(createModules(
+        "1;var a, b = 1, c = 2;", "b"),
+        new String[] {"var a, c;1;_.b = 1;c = 2", "_.b"});
   }
 
   public void testForLoops() {
@@ -259,12 +271,33 @@ public class RescopeGlobalSymbolsTest extends CompilerTestCase {
     }
 
     public void testFreeCallSemantics() {
+      // This triggers free call.
       test(
-          "function x(){};var y=function(){var val=x()||{}}",
-          "_.x=function(){};_.y=function(){var val=(0,_.x)()||{}}");
+          "function x(){this};var y=function(){var val=x()||{}}",
+          "_.x=function(){this};_.y=function(){var val=(0,_.x)()||{}}");
       test(
-          "function x(){x()}",
-          "_.x=function(){(0,_.x)()}");
+          "function x(){this;x()}",
+          "_.x=function(){this;(0,_.x)()}");
+      test(
+          "var a=function(){this};a()",
+          "_.a=function(){this};(0,_.a)()");
+      // Cases where free call forcing through (0, foo)() is not necessary.
+      test(
+          "var a=function(){};a()",
+          "_.a=function(){};_.a()");
+      test(
+          "function a(){};a()",
+          "_.a=function(){};_.a()");
+      test(
+          "var a;a=function(){};a()",
+          "_.a=function(){};_.a()");
+      // Ambigious cases.
+      test(
+          "var a=1;a=function(){};a()",
+          "_.a=1;_.a=function(){};(0,_.a)()");
+      test(
+          "var b;var a=b;a()",
+          "_.a=_.b;(0,_.a)()");
     }
   }
 }

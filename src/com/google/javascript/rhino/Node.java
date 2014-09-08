@@ -114,7 +114,20 @@ public class Node implements Cloneable, Serializable {
       GENERATOR_MARKER   = 65,    // Used by the ES6-to-ES3 translator.
       GENERATOR_SAFE     = 66,    // Used by the ES6-to-ES3 translator.
 
-      COOKED_STRING      = 70;    // Used to support ES6 tagged template literal.
+      COOKED_STRING      = 70,    // Used to support ES6 tagged template literal.
+      RAW_STRING_VALUE   = 71,    // Used to support ES6 tagged template literal.
+      COMPUTED_PROP_METHOD = 72,  // A computed property that has the method
+                                  // syntax ( [prop]() {...} ) rather than the
+                                  // property definition syntax ( [prop]: value ).
+      COMPUTED_PROP_GETTER = 73,  // A computed property in a getter, e.g.
+                                  // var obj = { get [prop]() {...} };
+      COMPUTED_PROP_SETTER = 74,  // A computed property in a setter, e.g.
+                                  // var obj = { set [prop](val) {...} };
+      ANALYZED_DURING_GTI  = 75;  // In GlobalTypeInfo, we mark some AST nodes
+                                  // to avoid analyzing them during
+                                  // NewTypeInference. We remove this attribute
+                                  // in the fwd direction of NewTypeInference.
+
 
   public static final int   // flags for INCRDECR_PROP
       DECR_FLAG = 0x1,
@@ -158,6 +171,11 @@ public class Node implements Cloneable, Serializable {
         case GENERATOR_MARKER:   return "is_generator_marker";
         case GENERATOR_SAFE:     return "is_generator_safe";
         case COOKED_STRING:      return "cooked_string";
+        case RAW_STRING_VALUE:   return "raw_string_value";
+        case COMPUTED_PROP_METHOD: return "computed_prop_method";
+        case COMPUTED_PROP_GETTER: return "computed_prop_getter";
+        case COMPUTED_PROP_SETTER: return "computed_prop_setter";
+        case ANALYZED_DURING_GTI:  return "analyzed_during_gti";
         default:
           throw new IllegalStateException("unexpected prop id " + propType);
       }
@@ -1740,6 +1758,22 @@ public class Node implements Cloneable, Serializable {
     }
   }
 
+  public boolean isValidAssignmentTarget() {
+    switch (getType()) {
+      // TODO(tbreisacher): Remove CAST from this list, and disallow
+      // the cryptic case from cl/41958159.
+      case Token.CAST:
+      case Token.NAME:
+      case Token.GETPROP:
+      case Token.GETELEM:
+      case Token.ARRAY_PATTERN:
+      case Token.OBJECT_PATTERN:
+        return true;
+      default:
+        return false;
+    }
+  }
+
   // ==========================================================================
   // Mutators
 
@@ -2122,9 +2156,10 @@ public class Node implements Cloneable, Serializable {
   }
 
   /**
-   * Returns whether this node is a variable length argument node. This
-   * method's return value is meaningful only on {@link Token#NAME} nodes
-   * used to define a {@link Token#FUNCTION}'s argument list.
+   * Returns whether this node is a static member node. This
+   * method is meaningful only on {@link Token#GETTER_DEF},
+   * {@link Token#SETTER_DEF} or {@link Token#MEMBER_DEF} nodes contained
+   * within {@link Token#CLASS}.
    */
   public boolean isStaticMember() {
     return getBooleanProp(STATIC_MEMBER);
@@ -2201,9 +2236,9 @@ public class Node implements Cloneable, Serializable {
   }
 
   /**
-   * Returns whether this node is a variable length argument node. This
-   * method's return value is meaningful only on {@link Token#NAME} nodes
-   * used to define a {@link Token#FUNCTION}'s argument list.
+   * Returns whether this node is a generator node. This
+   * method is meaningful only on {@link Token#FUNCTION} or
+   * {@link Token#MEMBER_DEF} nodes.
    */
   public boolean isYieldFor() {
     return getBooleanProp(YIELD_FOR);
@@ -2521,6 +2556,10 @@ public class Node implements Cloneable, Serializable {
 
   public boolean isDelProp() {
     return this.getType() == Token.DELPROP;
+  }
+
+  public boolean isDestructuringPattern() {
+    return isObjectPattern() || isArrayPattern();
   }
 
   public boolean isDo() {

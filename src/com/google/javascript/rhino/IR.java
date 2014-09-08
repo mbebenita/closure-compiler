@@ -361,7 +361,7 @@ public class IR {
   }
 
   public static Node assign(Node target, Node expr) {
-    Preconditions.checkState(isAssignmentTarget(target));
+    Preconditions.checkState(target.isValidAssignmentTarget());
     Preconditions.checkState(mayBeExpression(expr));
     return new Node(Token.ASSIGN, target, expr);
   }
@@ -371,6 +371,10 @@ public class IR {
     Preconditions.checkState(mayBeExpression(trueval));
     Preconditions.checkState(mayBeExpression(falseval));
     return new Node(Token.HOOK, cond, trueval, falseval);
+  }
+
+  public static Node in(Node expr1, Node expr2) {
+    return binaryOp(Token.IN, expr1, expr2);
   }
 
   public static Node comma(Node expr1, Node expr2) {
@@ -548,10 +552,6 @@ public class IR {
 
   private static boolean mayBeExpressionOrEmpty(Node n) {
     return n.isEmpty() || mayBeExpression(n);
-  }
-
-  private static boolean isAssignmentTarget(Node n) {
-    return n.isName() || n.isGetProp() || n.isGetElem();
   }
 
   // NOTE: some nodes are neither statements nor expression nodes:

@@ -79,14 +79,6 @@ class Property {
     return declaredType;
   }
 
-  Property withLocation(String location) {
-    return new Property(
-        inferredType.withLocation(location),
-        declaredType == null ? null :
-        declaredType.withLocation(location),
-        attribute);
-  }
-
   Property withOptional() {
     return new Property(inferredType, declaredType, Attribute.OPTIONAL);
   }
@@ -185,6 +177,9 @@ class Property {
   }
 
   Property substituteGenerics(Map<String, JSType> concreteTypes) {
+    if (concreteTypes.isEmpty()) {
+      return this;
+    }
     return new Property(
         inferredType.substituteGenerics(concreteTypes),
         declaredType == null ?
@@ -212,6 +207,12 @@ class Property {
 
   @Override
   public boolean equals(Object o) {
+    if (o == null) {
+      return false;
+    }
+    if (this == o) {
+      return true;
+    }
     Preconditions.checkArgument(o instanceof Property);
     Property p2 = (Property) o;
     return inferredType.equals(p2.inferredType) &&

@@ -28,7 +28,7 @@ class Es6TemplateLiterals {
   private static final String TEMPLATELIT_VAR = "$jscomp$templatelit$";
 
   static void visitTemplateLiteral(NodeTraversal t, Node n) {
-    if (!n.getFirstChild().isName()) {
+    if (n.getFirstChild().isString()) {
       createUntaggedTemplateLiteral(n);
     } else {
       createTaggedTemplateLiteral(t, n);
@@ -110,14 +110,15 @@ class Es6TemplateLiterals {
     }
     Node call = IR.call(n.removeFirstChild(), args)
         .useSourceInfoIfMissingFromForTree(n);
-    call.putBooleanProp(Node.FREE_CALL, true);
+    call.putBooleanProp(Node.FREE_CALL, !call.getFirstChild().isGetProp());
     n.getParent().replaceChild(n, call);
   }
 
   private static Node createRawStringArray(Node n) {
     Node[] items = new Node[n.getChildCount() / 2];
     for (int i = 0, j = 1; i < items.length; i++, j += 2) {
-      items[i] = n.getChildAtIndex(j).cloneNode();
+      items[i] = IR.string(
+          (String) n.getChildAtIndex(j).getProp(Node.RAW_STRING_VALUE));
     }
     return IR.arraylit(items);
   }
@@ -125,7 +126,8 @@ class Es6TemplateLiterals {
   private static Node createCookedStringArray(Node n) {
     Node[] items = new Node[n.getChildCount() / 2];
     for (int i = 0, j = 1; i < items.length; i++, j += 2) {
-      items[i] = IR.string(cookString(n.getChildAtIndex(j).getString()));
+      items[i] = IR.string(cookString(
+          (String) n.getChildAtIndex(j).getProp(Node.RAW_STRING_VALUE)));
       items[i].putBooleanProp(Node.COOKED_STRING, true);
     }
     return IR.arraylit(items);
@@ -133,8 +135,8 @@ class Es6TemplateLiterals {
 
   /**
    * Takes a raw string and returns a string that is suitable for the cooked
-   * value. This involves removing line continuations, escaping double quotes
-   * and escaping whitespace.
+   * value (the Template Value or TV as described in the specs). This involves
+   * removing line continuations.
    */
   private static String cookString(String s) {
     StringBuffer sb = new StringBuffer();
@@ -150,7 +152,7 @@ class Es6TemplateLiterals {
             case '\u2029':
               break;
             case '\r':
-              // \ \r \n should be stripped as one71601162
+              // \ \r \n should be stripped as one
               if (s.charAt(i + 1) == '\n') {
                 i++;
               }
@@ -162,13 +164,23 @@ class Es6TemplateLiterals {
           }
           break;
 
+        // Whitespace
+        case '\n':
+          sb.append("\\n");
+          break;
         // <CR><LF> and <CR> LineTerminatorSequences are normalized to <LF>
         // for both TV and TRV.
         case '\r':
           if (s.charAt(i) == '\n') {
             i++;
           }
-          sb.append('\n');
+          sb.append("\\n");
+          break;
+        case '\u2028':
+          sb.append("\\u2028");
+          break;
+        case '\u2029':
+          sb.append("\\u2029");
           break;
 
         default:

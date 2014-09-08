@@ -20,12 +20,14 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.io.Files;
 import com.google.javascript.jscomp.AbstractCompiler.LifeCycleStage;
+import com.google.javascript.jscomp.CompilerOptions.ExtractPrototypeMemberDeclarationsMode;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.CoverageInstrumentationPass.CoverageReach;
 import com.google.javascript.jscomp.ExtractPrototypeMemberDeclarations.Pattern;
@@ -207,27 +209,36 @@ public class DefaultPassConfig extends PassConfig {
 
     checks.add(createEmptyPass("beforeStandardChecks"));
 
-    boolean needsConversion = options.getLanguageIn() != options.getLanguageOut();
-    if (needsConversion || options.aggressiveVarCheck.isOn()) {
+    if (options.closurePass) {
+      checks.add(closureRewriteModule);
+    }
+
+    if (options.needsConversion() || options.aggressiveVarCheck.isOn()) {
       checks.add(checkVariableReferences);
     }
 
-    if (needsConversion) {
-      checks.add(es6HandleDefaultParams);
+    if (options.needsConversion()) {
+      checks.add(es6RenameVariablesInParamLists);
       checks.add(es6SplitVariableDeclarations);
       checks.add(convertEs6ToEs3);
       checks.add(rewriteLetConst);
       checks.add(rewriteGenerators);
       checks.add(markTranspilationDone);
-      checks.add(convertStaticInheritance);
+
+      if (options.transpileOnly) {
+        return checks;
+      } else {
+        checks.add(es6RuntimeLibrary);
+      }
     }
+
+    checks.add(convertStaticInheritance);
 
     if (options.declaredGlobalExternsOnWindow) {
       checks.add(declaredGlobalExternsOnWindow);
     }
 
     if (options.closurePass) {
-      checks.add(closureRewriteModule);
       checks.add(closureGoogScopeAliases);
       checks.add(closureRewriteClass);
     }
@@ -292,7 +303,10 @@ public class DefaultPassConfig extends PassConfig {
     }
 
     checks.add(checkVars);
-    checks.add(inferConsts);
+
+    if (options.inferConsts) {
+      checks.add(inferConsts);
+    }
 
     if (options.computeFunctionSideEffects) {
       checks.add(checkRegExp);
@@ -327,7 +341,7 @@ public class DefaultPassConfig extends PassConfig {
     }
 
     if (!options.disables(DiagnosticGroups.CHECK_USELESS_CODE) ||
-        (options.checkTypes && options.checkMissingReturn.isOn())) {
+        options.checkMissingReturn.isOn()) {
       checks.add(checkControlFlow);
     }
 
@@ -394,6 +408,10 @@ public class DefaultPassConfig extends PassConfig {
       checks.add(printNameReferenceReport);
     }
 
+    if (!options.getConformanceConfigs().isEmpty()) {
+      checks.add(checkConformance);
+    }
+
     checks.add(createEmptyPass("afterStandardChecks"));
 
     assertAllOneTimePasses(checks);
@@ -403,6 +421,10 @@ public class DefaultPassConfig extends PassConfig {
   @Override
   protected List<PassFactory> getOptimizations() {
     List<PassFactory> passes = Lists.newArrayList();
+
+    if (options.needsConversion() && options.transpileOnly) {
+      return passes;
+    }
 
     // Gather property names in externs so they can be queried by the
     // optimising passes.
@@ -453,7 +475,9 @@ public class DefaultPassConfig extends PassConfig {
       passes.add(collapseProperties);
     }
 
-    passes.add(inferConsts);
+    if (options.inferConsts) {
+      passes.add(inferConsts);
+    }
 
     // Running this pass before disambiguate properties allow the removing
     // unused methods that share the same name as methods called from unused
@@ -638,10 +662,11 @@ public class DefaultPassConfig extends PassConfig {
     //
     // Extracting prototype properties screws up the heuristic renaming
     // policies, so never run it when those policies are requested.
-    if (options.extractPrototypeMemberDeclarations &&
-        (options.propertyRenaming != PropertyRenamingPolicy.HEURISTIC &&
-         options.propertyRenaming !=
-            PropertyRenamingPolicy.AGGRESSIVE_HEURISTIC)) {
+    if (options.extractPrototypeMemberDeclarations !=
+            ExtractPrototypeMemberDeclarationsMode.OFF
+        && (options.propertyRenaming != PropertyRenamingPolicy.HEURISTIC
+            && options.propertyRenaming !=
+               PropertyRenamingPolicy.AGGRESSIVE_HEURISTIC)) {
       passes.add(extractPrototypeMemberDeclarations);
     }
 
@@ -1084,11 +1109,19 @@ public class DefaultPassConfig extends PassConfig {
     }
   };
 
-  final HotSwapPassFactory es6HandleDefaultParams =
-      new HotSwapPassFactory("Es6HandleDefaultParams", true) {
+  final PassFactory es6RuntimeLibrary =
+      new PassFactory("Es6RuntimeLibrary", true) {
+    @Override
+    protected CompilerPass create(final AbstractCompiler compiler) {
+      return new InjectEs6RuntimeLibrary(compiler);
+    }
+  };
+
+  final HotSwapPassFactory es6RenameVariablesInParamLists =
+      new HotSwapPassFactory("Es6RenameVariablesInParamLists", true) {
     @Override
     protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
-      return new Es6HandleDefaultParameters(compiler);
+      return new Es6RenameVariablesInParamLists(compiler);
     }
   };
 
@@ -1141,6 +1174,7 @@ public class DefaultPassConfig extends PassConfig {
     @Override
     protected CompilerPass create(final AbstractCompiler compiler) {
       return new CompilerPass() {
+        @Override
         public void process(Node externs, Node root) {
           compiler.setLanguageMode(options.getLanguageOut());
         }
@@ -1449,7 +1483,7 @@ public class DefaultPassConfig extends PassConfig {
       if (!options.disables(DiagnosticGroups.CHECK_USELESS_CODE)) {
         callbacks.add(new CheckUnreachableCode(compiler));
       }
-      if (options.checkMissingReturn.isOn() && options.checkTypes) {
+      if (options.checkMissingReturn.isOn()) {
         callbacks.add(
             new CheckMissingReturn(compiler, options.checkMissingReturn));
       }
@@ -2139,8 +2173,20 @@ public class DefaultPassConfig extends PassConfig {
       new PassFactory("extractPrototypeMemberDeclarations", true) {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
+      Pattern pattern;
+      switch (options.extractPrototypeMemberDeclarations) {
+        case USE_GLOBAL_TEMP:
+          pattern = Pattern.USE_GLOBAL_TEMP;
+          break;
+        case USE_IIFE:
+          pattern = Pattern.USE_IIFE;
+          break;
+        default:
+          throw new IllegalStateException("unexpected");
+      }
+
       return new ExtractPrototypeMemberDeclarations(
-          compiler, Pattern.USE_GLOBAL_TEMP);
+          compiler, pattern);
     }
   };
 
@@ -2617,4 +2663,12 @@ public class DefaultPassConfig extends PassConfig {
     }
   }
 
+  private final PassFactory checkConformance =
+      new PassFactory("checkConformance", true) {
+    @Override
+    protected CompilerPass create(final AbstractCompiler compiler) {
+      return new CheckConformance(
+          compiler, ImmutableList.copyOf(options.getConformanceConfigs()));
+    }
+  };
 }

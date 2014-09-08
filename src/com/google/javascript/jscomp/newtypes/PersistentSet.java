@@ -21,13 +21,24 @@ import java.util.AbstractSet;
 /** A persistent set with non-destructive additions and removals */
 public abstract class PersistentSet<K> extends AbstractSet<K> {
 
+  private static PersistentSet EMPTY;
+
+  static {
+    try {
+      Class c = Class.forName("clojure.lang.PersistentHashSet");
+      EMPTY = ClojurePersistentHashSet.create(c);
+    } catch (ClassNotFoundException e) {
+      EMPTY = NaivePersistentSet.create();
+    }
+  }
+
   public abstract PersistentSet<K> with(K key);
 
   public abstract PersistentSet<K> without(K key);
 
+  @SuppressWarnings("unchecked")
   public static <K> PersistentSet<K> create() {
-    return (PersistentSet<K>) EMPTY;
+    return EMPTY;
   }
 
-  private static final PersistentSet EMPTY = NaivePersistentSet.create();
 }

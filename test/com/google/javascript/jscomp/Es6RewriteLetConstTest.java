@@ -30,6 +30,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
     setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
     enableAstValidation(true);
     runTypeCheckAfterProcessing = true;
+    compareJsDoc = true;
   }
 
   @Override
@@ -51,10 +52,11 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
 
   public void testSimple() {
     test("let x = 3;", "var x = 3;");
-    test("const x = 3;", "var x = 3;");
-    test("const a = 0; a;", "var a = 0; a;");
+    test("const x = 3;", "/** @const */ var x = 3;");
+    test("const a = 0; a;", "/** @const */ var a = 0; a;");
     test("if (a) { let x; }", "if (a) { var x = undefined; }");
-    test("function f() { const x = 3; }", "function f() { var x = 3; }");
+    test("function f() { const x = 3; }",
+        "function f() { /** @const */ var x = 3; }");
   }
 
   public void testLetShadowing() {
@@ -87,7 +89,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "}"
     ), Joiner.on('\n').join(
         "function f() {",
-        "  var x = 3;",
+        "  /** @const */ var x = 3;",
         "  if (true) {",
         "    var x$0 = undefined;",
         "  }",
@@ -129,6 +131,22 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  if (a) {",
         "    var x$0 = 2;",
         "  }",
+        "}"
+    ));
+
+    test(Joiner.on('\n').join(
+        "function f() {",
+        "  {",
+        "    let inner = 2;",
+        "  }",
+        "  use(inner)",
+        "}"
+    ), Joiner.on('\n').join(
+        "function f() {",
+        "  {",
+        "    var inner$0 = 2;",
+        "  }",
+        "  use(inner)",
         "}"
     ));
   }
@@ -199,10 +217,10 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "}"
     ), Joiner.on('\n').join(
         "function f() {",
-        "  var y = 0;",
+        "  /** @const */ var y = 0;",
         "  for (var x = 0; x < 10; x++) {",
-        "    var y$0 = x * 2;",
-        "    var z = y$0;",
+        "    /** @const */ var y$0 = x * 2;",
+        "    /** @const */ var z = y$0;",
         "  }",
         "  console.log(y);",
         "}"
@@ -239,7 +257,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  arr.push(function() { return i; });",
         "}"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var $jscomp$loop$0 = {i: undefined};",
         "$jscomp$loop$0.i = 0;",
         "for (; $jscomp$loop$0.i < 10;",
@@ -257,7 +275,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  arr.push(function() { return y; });",
         "}"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var $jscomp$loop$0 = {y: undefined};",
         "var i = 0;",
         "for (; i < 10; $jscomp$loop$0 = {y: $jscomp$loop$0.y}, i++) {",
@@ -275,7 +293,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  arr.push(function() { return i; });",
         "}"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var $jscomp$loop$0 = {i: undefined}",
         "while (true) {",
         "  $jscomp$loop$0.i = 0;",
@@ -293,7 +311,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  arr.push(function() { return y + i; });",
         "}"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var $jscomp$loop$0 = {y: undefined, i: undefined};",
         "$jscomp$loop$0.i = 0;",
         "for (; $jscomp$loop$0.i < 10;",
@@ -318,7 +336,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  x++;",
         "}"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var x = 0",
         "var $jscomp$loop$1 = {i$0: undefined};",
         "var i = 0;",
@@ -344,7 +362,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  x++;",
         "}"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var x = 0",
         "var $jscomp$loop$1 = {i$0: undefined};",
         "var i = 0;",
@@ -404,7 +422,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  arr.push(function() { return i + j; });",
         "}"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var j = 0;",
         "var $jscomp$loop$1 = {i$0: undefined, j: undefined};",
         "var i = 0;",
@@ -427,7 +445,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  arr.push(function() { return i + j; });",
         "}"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var j = 0;",
         "var $jscomp$loop$0 = {i: undefined};",
         "$jscomp$loop$0.i = 0;",
@@ -447,7 +465,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  arr.push(function() { return i + j; });",
         "}"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var $jscomp$loop$0 = {i: undefined, j: undefined};",
         "$jscomp$loop$0.i = 0;",
         "$jscomp$loop$0.j = 0;",
@@ -466,7 +484,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  arr.push(function() { return j; });",
         "}"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var $jscomp$loop$0 = {j: undefined};",
         "var i = 0;",
         "$jscomp$loop$0.j = 0;",
@@ -486,7 +504,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  arr.push(function() { return ++i; });",
         "}"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var $jscomp$loop$0 = {i: undefined};",
         "$jscomp$loop$0.i = 0;",
         "for (; $jscomp$loop$0.i < 10;",
@@ -506,7 +524,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  i += 100;",
         "}"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var $jscomp$loop$0 = {i: undefined};",
         "$jscomp$loop$0.i = 0;",
         "for (; $jscomp$loop$0.i < 10;",
@@ -603,7 +621,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  arr.push(function() { return i; });",
         "}"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var $jscomp$loop$0 = {i: undefined};",
         "for (var i in [0, 1]) {",
         "  $jscomp$loop$0.i = i;",
@@ -621,7 +639,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  arr.push(function() { return i; });",
         "}"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var $jscomp$loop$1 = {i$0: undefined};",
         "for (var i of [0, 1]) {",
         "  $jscomp$loop$1.i$0 = 0;",
@@ -672,7 +690,7 @@ public class Es6RewriteLetConstTest extends CompilerTestCase {
         "  }",
         "} while (false);"
     ), Joiner.on('\n').join(
-        "var arr = [];",
+        "/** @const */ var arr = [];",
         "var $jscomp$loop$1 = {special: undefined};",
         "do {",
         "  $jscomp$loop$1.special = 99;",

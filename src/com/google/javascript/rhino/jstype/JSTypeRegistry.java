@@ -178,27 +178,17 @@ public class JSTypeRegistry implements Serializable {
   // there are no template types.
   private final TemplateTypeMap emptyTemplateTypeMap;
 
-  private final boolean tolerateUndefinedValues;
-
-  /**
-   * Constructs a new type registry populated with the built-in types.
-   */
-  public JSTypeRegistry(ErrorReporter reporter) {
-    this(reporter, false);
-  }
-
   /**
    * Constructs a new type registry populated with the built-in types.
    */
   public JSTypeRegistry(
-      ErrorReporter reporter, boolean tolerateUndefinedValues) {
+      ErrorReporter reporter) {
     this.reporter = reporter;
     this.emptyTemplateTypeMap = new TemplateTypeMap(
         this, ImmutableList.<TemplateType>of(), ImmutableList.<JSType>of());
     nativeTypes = new JSType[JSTypeNative.values().length];
     namesToTypes = new HashMap<String, JSType>();
     resetForTypeCheck();
-    this.tolerateUndefinedValues = tolerateUndefinedValues;
   }
 
   /**
@@ -220,10 +210,6 @@ public class JSTypeRegistry implements Serializable {
 
   public ErrorReporter getErrorReporter() {
     return reporter;
-  }
-
-  public boolean shouldTolerateUndefinedValues() {
-    return tolerateUndefinedValues;
   }
 
   /**
@@ -1012,9 +998,7 @@ public class JSTypeRegistry implements Serializable {
       // not be wrapped.
       return type;
     } else {
-      return shouldTolerateUndefinedValues()
-        ? createOptionalNullableType(type)
-        : createNullableType(type);
+      return createNullableType(type);
     }
   }
 
@@ -1479,6 +1463,11 @@ public class JSTypeRegistry implements Serializable {
     return new TemplateType(this, name);
   }
 
+  public TemplateType createTemplateTypeWithTransformation(
+      String name, Node expr) {
+    return new TemplateType(this, name, expr);
+  }
+
   /**
    * Creates a template type map from the specified list of template keys and
    * template value types.
@@ -1835,5 +1824,26 @@ public class JSTypeRegistry implements Serializable {
    */
   public void clearTemplateTypeNames() {
     templateTypes.clear();
+  }
+
+  private boolean isNonNullable(JSType type) {
+    // TODO(lpino): Verify that nonNullableTypeNames is correct
+    for (String s : nonNullableTypeNames) {
+      if (type.isEquivalentTo(getType(s))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Checks whether the input type can be templatized. It must be an
+   * {@code Object} type which is not a {@code NamespaceType} and is not a
+   * non-nullable type.
+   */
+  public boolean isTemplatizable(JSType type) {
+    return (type instanceof ObjectType)
+        && !(type instanceof NamespaceType)
+        && !isNonNullable(type);
   }
 }

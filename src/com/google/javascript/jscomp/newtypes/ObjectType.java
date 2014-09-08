@@ -20,12 +20,12 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  *
@@ -48,6 +48,10 @@ public class ObjectType implements TypeWithProperties {
       null, null, null, false, ObjectKind.STRUCT);
   static final ObjectType TOP_DICT = ObjectType.makeObjectType(
       null, null, null, false, ObjectKind.DICT);
+  private static final PersistentMap<String, Property> BOTTOM_MAP =
+      PersistentMap.of("_", Property.make(JSType.BOTTOM, JSType.BOTTOM));
+  private static final ObjectType BOTTOM_OBJECT = new ObjectType(
+      null, BOTTOM_MAP, null, false, ObjectKind.UNRESTRICTED);
 
   private ObjectType(NominalType nominalType,
       PersistentMap<String, Property> props, FunctionType fn, boolean isLoose,
@@ -69,6 +73,8 @@ public class ObjectType implements TypeWithProperties {
       boolean isLoose, ObjectKind ok) {
     if (props == null) {
       props = PersistentMap.create();
+    } else if (containsBottomProp(props)) {
+      return BOTTOM_OBJECT;
     }
     return new ObjectType(nominalType, props, fn, isLoose, ok);
   }
@@ -88,20 +94,27 @@ public class ObjectType implements TypeWithProperties {
     for (Map.Entry<String, JSType> propTypeEntry : propTypes.entrySet()) {
       String propName = propTypeEntry.getKey();
       JSType propType = propTypeEntry.getValue();
+      if (propType.isBottom()) {
+        return BOTTOM_OBJECT;
+      }
       props = props.with(propName, Property.make(propType, propType));
     }
-    return ObjectType.makeObjectType(
+    return new ObjectType(
         null, props, null, false, ObjectKind.UNRESTRICTED);
   }
 
   boolean isInhabitable() {
+    return this != BOTTOM_OBJECT;
+  }
+
+  static boolean containsBottomProp(PersistentMap<String, Property> props) {
     for (Property p : props.values()) {
-      if (!p.getType().isInhabitable()) {
-        return false;
+      if (p.getType().isBottom()) {
+        return true;
       }
     }
     // TODO(dimvar): do we need a stricter check for functions?
-    return true;
+    return false;
   }
 
   boolean isRecordType() {
@@ -124,26 +137,6 @@ public class ObjectType implements TypeWithProperties {
     return objectKind.isDict();
   }
 
-  static ImmutableSet<ObjectType> withLocation(
-      Set<ObjectType> objs, String location) {
-    ImmutableSet.Builder<ObjectType> newObjs = ImmutableSet.builder();
-    for (ObjectType obj : objs) {
-      newObjs.add(obj.withLocation(location));
-    }
-    return newObjs.build();
-  }
-
-  private ObjectType withLocation(String location) {
-    if (props.isEmpty()) {
-      return this;
-    }
-    PersistentMap<String, Property> pm = PersistentMap.create();
-    for (Map.Entry<String, Property> entry : props.entrySet()) {
-      pm = pm.with(entry.getKey(), entry.getValue().withLocation(location));
-    }
-    return ObjectType.makeObjectType(nominalType, pm, fn, isLoose, objectKind);
-  }
-
   static ImmutableSet<ObjectType> withLooseObjects(Set<ObjectType> objs) {
     ImmutableSet.Builder<ObjectType> newObjs = ImmutableSet.builder();
     for (ObjectType obj : objs) {
@@ -159,11 +152,14 @@ public class ObjectType implements TypeWithProperties {
     }
     FunctionType fn = this.fn == null ? null : this.fn.withLoose();
     PersistentMap<String, Property> newProps = PersistentMap.create();
-    for (String pname : this.props.keySet()) {
+    for (Map.Entry<String, Property> propsEntry : this.props.entrySet()) {
+      String pname = propsEntry.getKey();
+      Property prop = propsEntry.getValue();
       // It's wrong to warn about a possibly absent property on loose objects.
-      newProps = newProps.with(pname, this.props.get(pname).withRequired());
+      newProps = newProps.with(pname, prop.withRequired());
     }
-    return ObjectType.makeObjectType(
+    // No need to call makeObjectType because we know new object is inhabitable
+    return new ObjectType(
         nominalType, newProps, fn, true, this.objectKind);
   }
 
@@ -289,6 +285,9 @@ public class ObjectType implements TypeWithProperties {
         if (nomProp != null) {
           newProps =
               addOrRemoveProp(newProps, pname, nomProp, propsEntry.getValue());
+          if (newProps == BOTTOM_MAP) {
+            return BOTTOM_MAP;
+          }
         }
       }
     }
@@ -311,7 +310,13 @@ public class ObjectType implements TypeWithProperties {
           resultNominalType.getProp(pname) != null) {
         Property nomProp = resultNominalType.getProp(pname);
         newProps = addOrRemoveProp(newProps, pname, nomProp, newProp);
+        if (newProps == BOTTOM_MAP) {
+          return BOTTOM_MAP;
+        }
       } else {
+        if (newProp.getType().isBottom()) {
+          return BOTTOM_MAP;
+        }
         newProps = newProps.with(pname, newProp);
       }
     }
@@ -326,7 +331,11 @@ public class ObjectType implements TypeWithProperties {
     if (!propType.isUnknown() &&
         propType.isSubtypeOf(nomPropType) && !propType.equals(nomPropType)) {
       // We use specialize so that if nomProp is @const, we don't forget it.
-      return props.with(pname, nomProp.specialize(objProp));
+      Property newProp = nomProp.specialize(objProp);
+      if (newProp.getType().isBottom()) {
+        return BOTTOM_MAP;
+      }
+      return props.with(pname, newProp);
     }
     return props.without(pname);
   }
@@ -361,6 +370,9 @@ public class ObjectType implements TypeWithProperties {
       if (!props2.containsKey(pname)) {
         newProps = newProps.with(pname, propsEntry.getValue().withRequired());
       }
+      if (newProps == BOTTOM_MAP) {
+        return BOTTOM_MAP;
+      }
     }
     for (Map.Entry<String, Property> propsEntry : props2.entrySet()) {
       String pname = propsEntry.getKey();
@@ -370,6 +382,9 @@ public class ObjectType implements TypeWithProperties {
             Property.join(props1.get(pname), prop2).withRequired());
       } else {
         newProps = newProps.with(pname, prop2.withRequired());
+      }
+      if (newProps == BOTTOM_MAP) {
+        return BOTTOM_MAP;
       }
     }
     return newProps;
@@ -496,16 +511,26 @@ public class ObjectType implements TypeWithProperties {
       if (fn != null || other.fn != null) {
         return null;
       }
-      return ObjectType.makeObjectType(
+      PersistentMap<String, Property> newProps =
+          meetPropsHelper(true, resultNominalType, this.props, other.props);
+      if (newProps == BOTTOM_MAP) {
+        return BOTTOM_OBJECT;
+      }
+      return new ObjectType(
           resultNominalType,
-          meetPropsHelper(true, resultNominalType, this.props, other.props),
+          newProps,
           null,
           false,
           ObjectKind.meet(this.objectKind, other.objectKind));
     }
-    return ObjectType.makeObjectType(
+    PersistentMap<String, Property> newProps =
+        meetPropsHelper(true, null, this.props, other.props);
+    if (newProps == BOTTOM_MAP) {
+      return BOTTOM_OBJECT;
+    }
+    return new ObjectType(
         null,
-        meetPropsHelper(true, null, this.props, other.props),
+        newProps,
         this.fn == null ? null : this.fn.specialize(other.fn),
         this.isLoose,
         ObjectKind.meet(this.objectKind, other.objectKind));
@@ -525,7 +550,10 @@ public class ObjectType implements TypeWithProperties {
     } else {
       props = meetPropsHelper(false, resultNominalType, obj1.props, obj2.props);
     }
-    return ObjectType.makeObjectType(
+    if (props == BOTTOM_MAP) {
+      return BOTTOM_OBJECT;
+    }
+    return new ObjectType(
         resultNominalType,
         props,
         fn,
@@ -536,6 +564,9 @@ public class ObjectType implements TypeWithProperties {
   static ObjectType join(ObjectType obj1, ObjectType obj2) {
     Preconditions.checkState(
         areRelatedClasses(obj1.nominalType, obj2.nominalType));
+    if (obj1.equals(obj2)) {
+      return obj1;
+    }
     boolean isLoose = obj1.isLoose || obj2.isLoose;
     FunctionType fn = FunctionType.join(obj1.fn, obj2.fn);
     PersistentMap<String, Property> props;
@@ -560,10 +591,13 @@ public class ObjectType implements TypeWithProperties {
     } else if (objs2 == null) {
       return objs1;
     }
-    Set<ObjectType> newObjs = Sets.newHashSet(objs1);
+    ObjectType[] objs1Arr = objs1.toArray(new ObjectType[0]);
+    ObjectType[] keptFrom1 = objs1Arr.clone();
+    ImmutableSet.Builder<ObjectType> newObjs = ImmutableSet.builder();
     for (ObjectType obj2 : objs2) {
       boolean addedObj2 = false;
-      for (ObjectType obj1 : objs1) {
+      for (int i = 0; i < objs1Arr.length; i++) {
+        ObjectType obj1 = objs1Arr[i];
         NominalType nominalType1 = obj1.nominalType;
         NominalType nominalType2 = obj2.nominalType;
         if (areRelatedClasses(nominalType1, nominalType2)) {
@@ -574,7 +608,7 @@ public class ObjectType implements TypeWithProperties {
             // Don't merge other classes with record types
             break;
           }
-          newObjs.remove(obj1);
+          keptFrom1[i] = null;
           newObjs.add(join(obj1, obj2));
           addedObj2 = true;
           break;
@@ -584,7 +618,12 @@ public class ObjectType implements TypeWithProperties {
         newObjs.add(obj2);
       }
     }
-    return ImmutableSet.copyOf(newObjs);
+    for (ObjectType o : keptFrom1) {
+      if (o != null) {
+        newObjs.add(o);
+      }
+    }
+    return newObjs.build();
   }
 
   private static boolean areRelatedClasses(NominalType c1, NominalType c2) {
@@ -708,12 +747,15 @@ public class ObjectType implements TypeWithProperties {
    * @return The unified type, or null if unification fails
    */
   static ObjectType unifyUnknowns(ObjectType t1, ObjectType t2) {
-    if (t1.nominalType != t2.nominalType) {
+    if (!Objects.equals(t1.nominalType, t2.nominalType)) {
       return null;
     }
-    // TODO(blickly): Use functionType.unifyWith
-    if (t1.fn != t2.fn) {
-      throw new RuntimeException("Unification of functions not yet supported");
+    FunctionType newFn = null;
+    if (t1.fn != null || t2.fn != null) {
+      newFn = FunctionType.unifyUnknowns(t1.fn, t2.fn);
+      if (newFn == null) {
+        return null;
+      }
     }
     PersistentMap<String, Property> newProps = PersistentMap.create();
     for (String propName : t1.props.keySet()) {
@@ -728,7 +770,7 @@ public class ObjectType implements TypeWithProperties {
       }
       newProps = newProps.with(propName, p);
     }
-    return makeObjectType(t1.nominalType, newProps, t1.fn,
+    return makeObjectType(t1.nominalType, newProps, newFn,
         t1.isLoose || t2.isLoose,
         ObjectKind.join(t1.objectKind, t2.objectKind));
   }
@@ -766,12 +808,17 @@ public class ObjectType implements TypeWithProperties {
   }
 
   ObjectType substituteGenerics(Map<String, JSType> concreteTypes) {
-    PersistentMap<String, Property> newProps = PersistentMap.create();
-    for (String p : props.keySet()) {
-      newProps =
-          newProps.with(p, props.get(p).substituteGenerics(concreteTypes));
+    if (concreteTypes.isEmpty()) {
+      return this;
     }
-    return new ObjectType(
+    PersistentMap<String, Property> newProps = PersistentMap.create();
+    for (Map.Entry<String, Property> propsEntry : this.props.entrySet()) {
+      String pname = propsEntry.getKey();
+      Property newProp =
+          propsEntry.getValue().substituteGenerics(concreteTypes);
+      newProps = newProps.with(pname, newProp);
+    }
+    return makeObjectType(
         nominalType == null ? null :
         nominalType.instantiateGenerics(concreteTypes),
         newProps,
@@ -804,7 +851,7 @@ public class ObjectType implements TypeWithProperties {
     if (nominalType == null || !props.isEmpty()) {
       builder.append('{');
       boolean firstIteration = true;
-      for (String pname : Sets.newTreeSet(props.keySet())) {
+      for (String pname : new TreeSet<>(props.keySet())) {
         if (firstIteration) {
           firstIteration = false;
         } else {
@@ -826,6 +873,9 @@ public class ObjectType implements TypeWithProperties {
   public boolean equals(Object o) {
     if (o == null) {
       return false;
+    }
+    if (this == o) {
+      return true;
     }
     Preconditions.checkArgument(o instanceof ObjectType);
     ObjectType obj2 = (ObjectType) o;

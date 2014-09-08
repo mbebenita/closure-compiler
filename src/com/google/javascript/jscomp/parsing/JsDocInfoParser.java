@@ -23,7 +23,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.parsing.Config.LanguageMode;
-import com.google.javascript.jscomp.parsing.TypeTransformationParser.TypeTransformationWarning;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
@@ -35,7 +34,6 @@ import com.google.javascript.rhino.SimpleErrorReporter;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.jstype.StaticSourceFile;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -172,6 +170,7 @@ public final class JsDocInfoParser {
     JSTypeExpression expr = createJSTypeExpression(typeAst);
     if (expr != null) {
       jsdocBuilder.recordType(expr);
+      jsdocBuilder.recordInlineType();
       return retrieveAndResetParsedJSDocInfo();
     }
     return null;
@@ -257,11 +256,26 @@ public final class JsDocInfoParser {
           break;
 
         case EOC:
+          boolean success = true;
           if (hasParsedFileOverviewDocInfo()) {
             fileOverviewJSDocInfo = retrieveAndResetParsedJSDocInfo();
+            Visibility visibility = fileOverviewJSDocInfo.getVisibility();
+            switch (visibility) {
+              case PRIVATE: // fallthrough
+              case PROTECTED:
+                // PRIVATE and PROTECTED are not allowed in @fileoverview JsDoc.
+                parser.addParserWarning("msg.bad.fileoverview.visibility.annotation",
+                    visibility.toString().toLowerCase(), stream.getLineno(), stream.getCharno());
+                success = false;
+                break;
+              default:
+                // PACKAGE, PUBLIC, and (implicitly) INHERITED are allowed
+                // in @fileoverview JsDoc.
+                break;
+            }
           }
           checkExtendedTypes(extendedTypes);
-          return true;
+          return success;
 
         case EOF:
           // discard any accumulated information
@@ -883,8 +897,6 @@ public final class JsDocInfoParser {
         case TEMPLATE: {
           int templateLineno = stream.getLineno();
           int templateCharno = stream.getCharno();
-          // TODO(lpino): Fix the position of the warning marker for this case.
-          // For now the lineno and charno are set at the beginning of the @template
           ExtractionInfo templateInfo =
               extractMultilineTextualBlock(token, WhitespaceOption.TRIM);
           String templateString = templateInfo.string;
@@ -939,9 +951,11 @@ public final class JsDocInfoParser {
               if (!validTemplateTypeName(typeName)) {
                 parser.addTypeWarning("msg.jsdoc.template.invalid.type.name",
                     templateLineno, templateCharno);
-              } else if (!jsdocBuilder.recordTemplateTypeName(typeName)) {
-                parser.addTypeWarning("msg.jsdoc.template.name.declared.twice",
-                    templateLineno, templateCharno);
+              } else if (!isTypeTransformation) {
+                if (!jsdocBuilder.recordTemplateTypeName(typeName)) {
+                  parser.addTypeWarning("msg.jsdoc.template.name.declared.twice",
+                      templateLineno, templateCharno);
+                }
               }
             }
           }
@@ -963,20 +977,14 @@ public final class JsDocInfoParser {
             if (validTypeTransformation) {
               TypeTransformationParser ttlParser =
                   new TypeTransformationParser(typeTransformationExpr,
-                      sourceFile, errorReporter);
-              // If the parsing was successful save the AST
+                      sourceFile, errorReporter, templateLineno, templateCharno);
+              // If the parsing was successful store the type transformation
               if (ttlParser.parseTypeTransformation()) {
-                Node ttlAst = ttlParser.getTypeTransformationAst();
-                // TODO(lpino): Use the Type Transformation AST
-              } else {
-                // Throw the warnings otherwise
-                ArrayList<TypeTransformationWarning> warnings = ttlParser.getWarnings();
-                for (TypeTransformationWarning currentWarning : warnings) {
-                  // TODO(lpino): Report the exact lineno and charno in the
-                  // type transformation. For now they are set at the beginning
-                  // of the @template
-                  parser.addTypeWarning(currentWarning.messageId,
-                      currentWarning.messageArg, templateLineno, templateCharno);
+                if (!jsdocBuilder.recordTypeTransformation(names.get(0),
+                    ttlParser.getTypeTransformationAst())) {
+                  parser.addTypeWarning(
+                      "msg.jsdoc.template.name.declared.twice",
+                      templateLineno, templateCharno);
                 }
               }
             }

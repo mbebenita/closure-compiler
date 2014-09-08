@@ -140,7 +140,7 @@ public enum CompilationLevel {
     options.foldConstants = true;
     options.coalesceVariableNames = true;
     options.deadAssignmentElimination = true;
-    options.extractPrototypeMemberDeclarations = true;
+    options.setExtractPrototypeMemberDeclarations(true);
     options.collapseVariableDeclarations = true;
     options.convertToDottedProperties = true;
     options.labelRenaming = true;
@@ -156,7 +156,7 @@ public enum CompilationLevel {
         VariableRenamingPolicy.ALL, PropertyRenamingPolicy.ALL_UNQUOTED);
     options.shadowVariables = true;
     options.removeUnusedPrototypeProperties = true;
-    options.removeUnusedPrototypePropertiesInExterns = true;
+    options.removeUnusedPrototypePropertiesInExterns = false;
     options.removeUnusedClassProperties = true;
     options.collapseAnonymousFunctions = true;
     options.collapseProperties = true;

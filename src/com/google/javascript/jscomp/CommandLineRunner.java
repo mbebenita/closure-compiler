@@ -21,12 +21,14 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.Files;
+import com.google.protobuf.TextFormat;
 
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.CmdLineException;
@@ -350,6 +352,14 @@ public class CommandLineRunner extends
         usage = "Process CommonJS modules to a concatenable form.")
     private boolean processCommonJsModules = false;
 
+    @Option(name = "--rewrite_es6_modules",
+        usage = "Rewrite ES6 modules to a concatenable form.")
+    private boolean rewriteEs6Modules = false;
+
+    @Option(name = "--transpile_only",
+        usage = "Run ES6 to ES3 transpilation only, skip other passes.")
+    private boolean transpileOnly = false;
+
     @Option(name = "--common_js_module_path_prefix",
         usage = "Path prefix to be removed from CommonJS module names.")
     private String commonJsPathPrefix =
@@ -383,7 +393,7 @@ public class CommandLineRunner extends
         handler = BooleanOptionHandler.class,
         usage = "Only include files in the transitive dependency of the "
         + "entry points (specified by closure_entry_point). Files that do "
-        + "not provide dependencies will be removed. This supersedes"
+        + "not provide dependencies will be removed. This supersedes "
         + "manage_closure_dependencies")
     private boolean onlyClosureDependencies = false;
 
@@ -426,11 +436,11 @@ public class CommandLineRunner extends
         usage = "Allows usage of const keyword.")
     private boolean acceptConstKeyword = false;
 
-    // TODO(tbreisacher): Add ES6 and ES6_STRICT to this usage string, once ES6
-    // support is stable enough for people to start using it.
+    // TODO(tbreisacher): Remove the "(experimental)" for ES6 when it's stable enough.
     @Option(name = "--language_in",
         usage = "Sets what language spec that input sources conform. "
-        + "Options: ECMASCRIPT3 (default), ECMASCRIPT5, ECMASCRIPT5_STRICT")
+        + "Options: ECMASCRIPT3 (default), ECMASCRIPT5, ECMASCRIPT5_STRICT, "
+        + "ECMASCRIPT6 (experimental), ECMASCRIPT6_STRICT (experimental)")
     private String languageIn = "ECMASCRIPT3";
 
     @Option(name = "--language_out",
@@ -441,7 +451,7 @@ public class CommandLineRunner extends
 
     @Option(name = "--version",
         handler = BooleanOptionHandler.class,
-        usage = "Prints the compiler version to stderr.")
+        usage = "Prints the compiler version to stdout.")
     private boolean version = false;
 
     @Option(name = "--translations_file",
@@ -477,6 +487,10 @@ public class CommandLineRunner extends
     @Option(name = "--new_type_inf",
         usage = "In development new type inference pass. DO NOT USE!")
     private boolean useNewTypeInference = false;
+
+    @Option(name = "--conformance_configs",
+        usage = "A list of JS Conformance configurations in text protocol buffer format.")
+    private List<String> conformanceConfigs = new ArrayList<>();
 
     @Argument
     private List<String> arguments = new ArrayList<>();
@@ -529,7 +543,7 @@ public class CommandLineRunner extends
      * order produced by {@code find} is unlikely to be sorted correctly with
      * respect to {@code goog.provide()} and {@code goog.requires()}.
      */
-    List<String> getJsFiles(PrintStream err) throws CmdLineException, IOException {
+    protected List<String> getJsFiles() throws CmdLineException, IOException {
       final Set<String> allJsInputs = new LinkedHashSet<>();
       List<String> patterns = new ArrayList<>();
       patterns.addAll(js);
@@ -762,36 +776,12 @@ public class CommandLineRunner extends
    */
   protected CommandLineRunner(String[] args) {
     super();
-    initConfigFromFlags(args, System.err);
+    initConfigFromFlags(args, System.out, System.err);
   }
 
   protected CommandLineRunner(String[] args, PrintStream out, PrintStream err) {
     super(out, err);
-    initConfigFromFlags(args, err);
-  }
-
-  /**
-   * Split strings into tokens delimited by whitespace, but treat quoted
-   * strings as single tokens. Non-whitespace characters adjacent to quoted
-   * strings will be returned as part of the token. For example, the string
-   * {@code "--js='/home/my project/app.js'"} would be returned as a single
-   * token.
-   *
-   * @param lines strings to tokenize
-   * @return a list of tokens
-   */
-  private static List<String> tokenizeKeepingQuotedStrings(List<String> lines) {
-    List<String> tokens = new ArrayList<>();
-    Pattern tokenPattern =
-        Pattern.compile("(?:[^ \t\f\\x0B'\"]|(?:'[^']*'|\"[^\"]*\"))+");
-
-    for (String line : lines) {
-      Matcher matcher = tokenPattern.matcher(line);
-      while (matcher.find()) {
-        tokens.add(matcher.group(0));
-      }
-    }
-    return tokens;
+    initConfigFromFlags(args, out, err);
   }
 
   private static List<String> processArgs(String[] args) {
@@ -889,7 +879,7 @@ public class CommandLineRunner extends
     }
   }
 
-  private void initConfigFromFlags(String[] args, PrintStream err) {
+  private void initConfigFromFlags(String[] args, PrintStream out, PrintStream err) {
 
     List<String> processedArgs = processArgs(args);
 
@@ -905,7 +895,7 @@ public class CommandLineRunner extends
         processFlagFile(err);
       }
 
-      jsFiles = flags.getJsFiles(err);
+      jsFiles = flags.getJsFiles();
     } catch (CmdLineException e) {
       err.println(e.getMessage());
       isConfigValid = false;
@@ -915,11 +905,11 @@ public class CommandLineRunner extends
     }
 
     if (flags.version) {
-      err.println(
+      out.println(
           "Closure Compiler (http://github.com/google/closure-compiler)\n" +
           "Version: " + Compiler.getReleaseVersion() + "\n" +
           "Built on: " + Compiler.getReleaseDate());
-      err.flush();
+      out.flush();
     }
 
     if (flags.processCommonJsModules) {
@@ -955,6 +945,8 @@ public class CommandLineRunner extends
     if (!isConfigValid || flags.displayHelp) {
       isConfigValid = false;
       flags.printUsage(err);
+    } else if (flags.version) {
+      isConfigValid = false;
     } else {
       CodingConvention conv;
       if (flags.thirdParty) {
@@ -998,6 +990,8 @@ public class CommandLineRunner extends
           .setLanguageIn(flags.languageIn)
           .setLanguageOut(flags.languageOut)
           .setProcessCommonJSModules(flags.processCommonJsModules)
+          .setRewriteEs6Modules(flags.rewriteEs6Modules)
+          .setTranspileOnly(flags.transpileOnly)
           .setCommonJSModulePathPrefix(flags.commonJsPathPrefix)
           .setTransformAMDToCJSModules(flags.transformAmdModules)
           .setWarningsWhitelistFile(flags.warningsWhitelistFile)
@@ -1005,6 +999,12 @@ public class CommandLineRunner extends
           .setTracerMode(flags.tracerMode)
           .setNewTypeInference(flags.useNewTypeInference);
     }
+  }
+
+  @Override
+  protected void addWhitelistWarningsGuard(
+      CompilerOptions options, File whitelistFile) {
+    options.addWarningsGuard(WhitelistWarningsGuard.fromFile(whitelistFile));
   }
 
   @Override
@@ -1067,6 +1067,8 @@ public class CommandLineRunner extends
       options.setWarningLevel(JsMessageVisitor.MSG_CONVENTIONS, CheckLevel.OFF);
     }
 
+    options.setConformanceConfigs(loadConformanceConfigs(flags.conformanceConfigs));
+
     return options;
   }
 
@@ -1086,6 +1088,34 @@ public class CommandLineRunner extends
       defaultExterns.addAll(externs);
       return defaultExterns;
     }
+  }
+
+  private ImmutableList<ConformanceConfig> loadConformanceConfigs(List<String> configPaths) {
+    ImmutableList.Builder<ConformanceConfig> configs =
+        ImmutableList.builder();
+
+    for (String configPath : configPaths) {
+      try {
+        configs.add(loadConformanceConfig(configPath));
+      } catch (IOException e) {
+        throw new RuntimeException("Error loading conformance config", e);
+      }
+    }
+
+    return configs.build();
+  }
+
+  private static ConformanceConfig loadConformanceConfig(String configFile)
+      throws IOException {
+    String textProto = Files.toString(new File(configFile), UTF_8);
+
+    ConformanceConfig.Builder builder = ConformanceConfig.newBuilder();
+    try {
+      TextFormat.merge(textProto, builder);
+    } catch (Exception e) {
+      throw Throwables.propagate(e);
+    }
+    return builder.build();
   }
 
   // The externs expected in externs.zip, in sorted order.

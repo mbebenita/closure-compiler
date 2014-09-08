@@ -20,8 +20,6 @@
  * TODO: Mocks.
  * TODO: Remaining Services:
  *     $compileProvider
- *     $controller
- *     $controllerProvider
  *     $cookies
  *     $cookieStore
  *     $document
@@ -481,6 +479,7 @@ angular.Directive.transclude;
  *   next: function(): !angular.JQLite,
  *   on: function(string, Function): !angular.JQLite,
  *   off: function(string=, Function=): !angular.JQLite,
+ *   one: function(string, Function): !angular.JQLite,
  *   parent: function(): !angular.JQLite,
  *   prepend: function(JQLiteSelector): !angular.JQLite,
  *   prop: function(string, *=): *,
@@ -1144,6 +1143,26 @@ angular.$cacheFactory.Cache.prototype.destroy = function() {};
  *   }}
  */
 angular.$cacheFactory.Cache.Info;
+
+/******************************************************************************
+ * $controller Service
+ *****************************************************************************/
+
+/**
+ * @typedef {function((Function|string), Object):Object}
+ */
+angular.$controller;
+
+/******************************************************************************
+ * $controllerProvider Service
+ *****************************************************************************/
+
+/**
+ * @typedef {{
+ *   register: function((string|Object), (Function|Array))
+ *   }}
+ */
+angular.$controllerProvider;
 
 /******************************************************************************
  * $exceptionHandler Service

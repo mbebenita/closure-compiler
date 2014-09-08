@@ -20,10 +20,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -71,7 +71,7 @@ public class NominalType {
 
   NominalType instantiateGenerics(List<JSType> types) {
     Preconditions.checkState(types.size() == rawType.typeParameters.size());
-    Map<String, JSType> typeMap = Maps.newHashMap();
+    Map<String, JSType> typeMap = new HashMap<>();
     for (int i = 0; i < rawType.typeParameters.size(); i++) {
       typeMap.put(rawType.typeParameters.get(i), types.get(i));
     }
@@ -79,6 +79,9 @@ public class NominalType {
   }
 
   NominalType instantiateGenerics(Map<String, JSType> newTypeMap) {
+    if (newTypeMap.isEmpty()) {
+      return this;
+    }
     if (!this.rawType.isGeneric()) {
       return this.rawType.wrappedAsNominal;
     }
@@ -113,7 +116,7 @@ public class NominalType {
   }
 
   public boolean isInterface() {
-    return !rawType.isClass();
+    return rawType.isInterface();
   }
 
   /** True iff it has all properties and the RawNominalType is immutable */
@@ -152,8 +155,11 @@ public class NominalType {
   }
 
   public JSType getPropDeclaredType(String pname) {
-    JSType type = rawType.getPropDeclaredType(pname);
-    return type == null ? null : type.substituteGenerics(typeMap);
+    JSType type = rawType.getInstancePropDeclaredType(pname);
+    if (type == null) {
+      return null;
+    }
+    return type.substituteGenerics(typeMap);
   }
 
   public boolean hasConstantProp(String pname) {
@@ -161,9 +167,8 @@ public class NominalType {
     return p != null && p.isConstant();
   }
 
-  JSType createConstructorObject(FunctionType ctorFn) {
-    Preconditions.checkState(typeMap.isEmpty());
-    return rawType.createConstructorObject(ctorFn);
+  static JSType createConstructorObject(FunctionType ctorFn) {
+    return ctorFn.nominalType.rawType.createConstructorObject(ctorFn);
   }
 
   boolean isSubclassOf(NominalType other) {
@@ -190,10 +195,17 @@ public class NominalType {
     // interface <: interface
     if (rawType.isInterface && otherRawType.isInterface) {
       if (rawType.equals(otherRawType)) {
-        for (String typeVar : rawType.getTypeParameters()) {
-          if (!typeMap.get(typeVar).isSubtypeOf(other.typeMap.get(typeVar))) {
-            return false;
+        if (!typeMap.isEmpty()) {
+          for (String typeVar : rawType.getTypeParameters()) {
+            Preconditions.checkState(other.typeMap.containsKey(typeVar),
+                "Other (%s) doesn't contain mapping (%s->%s) from this (%s)",
+                other, typeVar, typeMap.get(typeVar), this);
+            if (!typeMap.get(typeVar).isSubtypeOf(other.typeMap.get(typeVar))) {
+              return false;
+            }
           }
+        } else if (!other.typeMap.isEmpty()) {
+          return false;
         }
         return true;
       } else if (rawType.interfaces == null) {
@@ -210,14 +222,18 @@ public class NominalType {
 
     // class <: class
     if (rawType.equals(otherRawType)) {
-      for (String typeVar : rawType.getTypeParameters()) {
-        Preconditions.checkState(typeMap.containsKey(typeVar),
-            "Type variable %s not in the domain: %s",
-            typeVar, typeMap.keySet());
-        Preconditions.checkState(other.typeMap.containsKey(typeVar));
-        if (!typeMap.get(typeVar).isSubtypeOf(other.typeMap.get(typeVar))) {
-          return false;
+      if (!typeMap.isEmpty()) {
+        for (String typeVar : rawType.getTypeParameters()) {
+          Preconditions.checkState(typeMap.containsKey(typeVar),
+              "Type variable %s not in the domain: %s",
+              typeVar, typeMap.keySet());
+          Preconditions.checkState(other.typeMap.containsKey(typeVar));
+          if (!typeMap.get(typeVar).isSubtypeOf(other.typeMap.get(typeVar))) {
+            return false;
+          }
         }
+      } else if (!other.typeMap.isEmpty()) {
+        return false;
       }
       return true;
     } else if (rawType.superClass == null) {
@@ -236,8 +252,7 @@ public class NominalType {
     if (c1.isSubclassOf(c2)) {
       return c2;
     }
-    Preconditions.checkState(c2.isSubclassOf(c1));
-    return c1;
+    return c2.isSubclassOf(c1) ? c1 : null;
   }
 
   // A special-case of meet
@@ -250,8 +265,7 @@ public class NominalType {
     if (c1.isSubclassOf(c2)) {
       return c1;
     }
-    Preconditions.checkState(c2.isSubclassOf(c1));
-    return c2;
+    return c2.isSubclassOf(c1) ? c2 : null;
   }
 
   boolean unifyWith(NominalType other, List<String> typeParameters,
@@ -377,6 +391,10 @@ public class NominalType {
 
     public boolean isClass() {
       return !isInterface;
+    }
+
+    public boolean isInterface() {
+      return isInterface;
     }
 
     boolean isGeneric() {
@@ -518,7 +536,7 @@ public class NominalType {
       return getProp(pname) != null;
     }
 
-    public JSType getPropDeclaredType(String pname) {
+    public JSType getInstancePropDeclaredType(String pname) {
       Property p = getProp(pname);
       if (p == null) {
         return null;
@@ -530,7 +548,7 @@ public class NominalType {
     }
 
     public Set<String> getAllOwnProps() {
-      Set<String> ownProps = Sets.newHashSet();
+      Set<String> ownProps = new HashSet<>();
       ownProps.addAll(classProps.keySet());
       ownProps.addAll(protoProps.keySet());
       return ownProps;
@@ -557,7 +575,6 @@ public class NominalType {
       if (allProps == null) {
         ImmutableSet.Builder<String> builder = ImmutableSet.builder();
         if (superClass != null) {
-          Preconditions.checkState(superClass.typeMap.isEmpty());
           builder.addAll(superClass.rawType.getAllPropsOfClass());
         }
         allProps = builder
@@ -703,6 +720,7 @@ public class NominalType {
       appendGenericSuffixTo(builder, ImmutableMap.<String, JSType>of());
       return builder.toString();
     }
+
     @Override
     public JSType toJSType() {
       Preconditions.checkState(ctorFn != null);

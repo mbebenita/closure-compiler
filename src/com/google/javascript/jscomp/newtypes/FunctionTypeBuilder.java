@@ -18,9 +18,9 @@ package com.google.javascript.jscomp.newtypes;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -41,9 +41,9 @@ public class FunctionTypeBuilder {
     }
   }
 
-  private final List<JSType> requiredFormals = Lists.newArrayList();
-  private final List<JSType> optionalFormals = Lists.newArrayList();
-  private final Map<String, JSType> outerVars = Maps.newHashMap();
+  private final List<JSType> requiredFormals = new ArrayList<>();
+  private final List<JSType> optionalFormals = new ArrayList<>();
+  private final Map<String, JSType> outerVars = new HashMap<>();
   private JSType restFormals = null;
   private JSType returnType = null;
   private boolean loose = false;
@@ -72,13 +72,18 @@ public class FunctionTypeBuilder {
 
   public FunctionTypeBuilder addOptFormal(JSType t)
       throws WrongParameterOrderException {
-    Preconditions.checkNotNull(t);
     if (restFormals != null) {
       throw new WrongParameterOrderException(
           "Cannot add optional formal after rest args");
     }
-    // We keep bottom to warn about CALL_FUNCTION_WITH_BOTTOM_FORMAL.
-    optionalFormals.add(t.isBottom() ? t : JSType.join(t, JSType.UNDEFINED));
+    if (t == null) {
+      optionalFormals.add(null);
+    } else if (t.isBottom()) {
+      // We keep bottom to warn about CALL_FUNCTION_WITH_BOTTOM_FORMAL.
+      optionalFormals.add(JSType.BOTTOM);
+    } else {
+      optionalFormals.add(JSType.join(t, JSType.UNDEFINED));
+    }
     return this;
   }
 
@@ -128,8 +133,8 @@ public class FunctionTypeBuilder {
 
   public FunctionType buildFunction() {
     FunctionType result = FunctionType.normalized(
-        requiredFormals, optionalFormals,
-        restFormals, returnType, nominalType, outerVars, typeParameters, loose);
+        requiredFormals, optionalFormals, restFormals, returnType,
+        nominalType, receiverType, outerVars, typeParameters, loose);
     result.checkValid();
     return result;
   }

@@ -16,9 +16,11 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.NodeTraversal.AbstractShallowStatementCallback;
+import com.google.javascript.jscomp.NodeTraversal.Callback;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 
@@ -63,6 +65,7 @@ final class RescopeGlobalSymbols implements CompilerPass {
   private final boolean addExtern;
   private final boolean assumeCrossModuleNames;
   private final Set<String> crossModuleNames = Sets.newHashSet();
+  private final Set<String> maybeReferencesThis = Sets.newHashSet();
 
   /**
    * Constructor for the RescopeGlobalSymbols compiler pass.
@@ -130,14 +133,20 @@ final class RescopeGlobalSymbols implements CompilerPass {
         compiler,
         root,
         new RewriteGlobalFunctionStatementsToVarAssignmentsCallback());
-    // 2. find global names than are used in more than one module. Those that
+    // 2. find global names that are used in more than one module. Those that
     //    are have to be rewritten.
-    NodeTraversal.traverse(compiler, root, new FindCrossModuleNamesCallback());
+    List<Callback> nonMutatingPasses = new ArrayList<>();
+    nonMutatingPasses.add(new FindCrossModuleNamesCallback());
+    //    and find names that may refering functions that reference this.
+    nonMutatingPasses.add(new FindNamesReferencingThis());
+    CombinedCompilerPass.traverse(compiler, root, nonMutatingPasses);
     // 3. rewriting all references to be property accesses of the single symbol.
-    NodeTraversal.traverse(compiler, root, new RewriteScopeCallback());
+    RewriteScopeCallback rewriteScope = new RewriteScopeCallback();
+    NodeTraversal.traverse(compiler, root, rewriteScope);
     // 4. removing the var from statements in global scope if the declared names
     //    have been rewritten in the previous pass.
     NodeTraversal.traverse(compiler, root, new RemoveGlobalVarCallback());
+    rewriteScope.declareModuleGlobals();
 
     // Extra pass which makes all extern global symbols reference window
     // explicitly.
@@ -212,6 +221,52 @@ final class RescopeGlobalSymbols implements CompilerPass {
   }
 
   /**
+   * Builds the maybeReferencesThis set of names that may reference a function
+   * that references this. If the function a name references does not reference
+   * this it can be called as a method call where the this value is not the
+   * same as in a normal function call.
+   */
+  private class FindNamesReferencingThis extends
+      AbstractPostOrderCallback {
+    @Override
+    public void visit(NodeTraversal t, Node n, Node parent) {
+      if (n.isName()) {
+        String name = n.getString();
+        if (name.isEmpty()) {
+          return;
+        }
+        Node value = null;
+        if (parent.isAssign() && n == parent.getFirstChild()) {
+          value = parent.getLastChild();
+        } else if (parent.isVar()) {
+          value = n.getFirstChild();
+        } else if (parent.isFunction()) {
+          value = parent;
+        }
+        if (value == null) {
+          return;
+        }
+        // We already added this symbol. Done after checks above because those
+        // are comparatively cheap.
+        if (maybeReferencesThis.contains(name)) {
+          return;
+        }
+        Scope s = t.getScope();
+        Scope.Var v = s.getVar(name);
+        if (v == null || !v.isGlobal()) {
+          return;
+        }
+        // If anything but a function is assignment we assume that possibly
+        // a function referencing this is being assignment. Otherwise we
+        // check whether the function that is being assigned references this.
+        if (!value.isFunction() || NodeUtil.referencesThis(value)) {
+          maybeReferencesThis.add(name);
+        }
+      }
+    }
+  }
+
+  /**
    * Visits each NAME token and checks whether it refers to a global variable.
    * If yes, rewrites the name to be a property access on the
    * "globalSymbolNamespace".
@@ -232,6 +287,9 @@ final class RescopeGlobalSymbols implements CompilerPass {
    * function call.
    */
   private class RewriteScopeCallback extends AbstractPostOrderCallback {
+
+    List<ModuleGlobal> preDeclarations = Lists.newArrayList();
+
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
       if (!n.isName()) {
@@ -312,6 +370,12 @@ final class RescopeGlobalSymbols implements CompilerPass {
         parent.replaceChild(node, assign);
       } else if (isCrossModule) {
         parent.replaceChild(node, replacement);
+        if (parent.isCall() && !maybeReferencesThis.contains(name)) {
+          // Do not write calls like this: (0, _a)() but rather as _.a(). The
+          // this inside the function will be wrong, but it doesn't matter
+          // because the this is never read.
+          parent.putBooleanProp(Node.FREE_CALL, false);
+        }
       }
       // If we changed a non cross module name that was in a var declaration
       // we need to preserve that var declaration. Because it is global
@@ -321,10 +385,40 @@ final class RescopeGlobalSymbols implements CompilerPass {
       // becomes
       // var notCrossModule;_.crossModule = i++, notCrossModule = i++
       if (!isCrossModule && parent.isVar()) {
-        input.getAstRoot(compiler).addChildToFront(
-            IR.var(IR.name(name).srcref(node)).srcref(node));
+        preDeclarations.add(new ModuleGlobal(
+            input.getAstRoot(compiler),
+            IR.name(name).srcref(node)));
       }
       compiler.reportCodeChange();
+    }
+
+    /**
+     * Adds back declarations for variables that do not cross module boundaries.
+     * Must be called after RemoveGlobalVarCallback.
+     */
+    void declareModuleGlobals() {
+      for (ModuleGlobal global : preDeclarations) {
+        if (global.root.getFirstChild().isVar()) {
+          global.root.getFirstChild().addChildToBack(global.name);
+        } else {
+          global.root.addChildToFront(
+              IR.var(global.name).srcref(global.name));
+        }
+        compiler.reportCodeChange();
+      }
+    }
+
+    /**
+     * Variable that doesn't cross module boundaries.
+     */
+    private class ModuleGlobal {
+      final Node root;
+      final Node name;
+
+      ModuleGlobal(Node root, Node name) {
+        this.root = root;
+        this.name = name;
+      }
     }
   }
 

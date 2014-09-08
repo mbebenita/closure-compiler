@@ -798,7 +798,8 @@ public final class NodeUtil {
     if (n.isVar()
         || n.isName() && n.getParent().isVar()
         || (n.isGetProp() && n.getParent().isAssign()
-            && n.getParent().getParent().isExprResult())) {
+            && n.getParent().getParent().isExprResult())
+        || (n.isAssign() && n.getParent().isExprResult())) {
       JSDocInfo jsdoc = getBestJSDocInfo(n);
       return jsdoc != null && jsdoc.hasEnumParameterType();
     }
@@ -806,11 +807,12 @@ public final class NodeUtil {
   }
 
   static Node getInitializer(Node n) {
-    Preconditions.checkArgument(n.isQualifiedName());
+    Preconditions.checkArgument(n.isQualifiedName() || n.isStringKey());
     switch (n.getParent().getType()) {
       case Token.ASSIGN:
         return n.getNext();
       case Token.VAR:
+      case Token.OBJECTLIT:
         return n.getFirstChild();
       default:
         return null;
@@ -821,10 +823,13 @@ public final class NodeUtil {
    * Returns true iff this node defines a namespace, such as goog or goog.math.
    */
   static boolean isNamespaceDecl(Node n) {
+    JSDocInfo jsdoc = getBestJSDocInfo(n);
+    if (jsdoc != null && !jsdoc.getTypeNodes().isEmpty()) {
+      return false;
+    }
     Node qnameNode;
     Node initializer;
     if (n.getParent().isVar()) {
-      JSDocInfo jsdoc = getBestJSDocInfo(n);
       if (jsdoc == null || !jsdoc.isConstant()) {
         return false;
       }
@@ -850,16 +855,12 @@ public final class NodeUtil {
     if (initializer == null || qnameNode == null) {
       return false;
     }
-    if (isEmptyObjectLit(initializer)) {
+    if (initializer.isObjectLit()) {
       return true;
     }
     return initializer.isOr()
         && qnameNode.matchesQualifiedName(initializer.getFirstChild())
-        && isEmptyObjectLit(initializer.getLastChild());
-  }
-
-  static boolean isEmptyObjectLit(Node n) {
-    return n.isObjectLit() && n.getChildCount() == 0;
+        && initializer.getLastChild().isObjectLit();
   }
 
   /**
@@ -1366,9 +1367,7 @@ public final class NodeUtil {
       case Token.GETELEM:
       case Token.GETPROP:
       // Data values
-      case Token.GENERATOR_COMP:
       case Token.ARRAYLIT:
-      case Token.ARRAY_COMP:
       case Token.ARRAY_PATTERN:
       case Token.DEFAULT_VALUE:
       case Token.EMPTY:  // TODO(johnlenz): remove this.
@@ -3282,6 +3281,25 @@ public final class NodeUtil {
       }
     }
     return fnInfo;
+  }
+
+  static boolean functionHasInlineJsdocs(Node fn) {
+    if (!fn.isFunction()) {
+      return false;
+    }
+    // Check inline return annotation
+    if (fn.getFirstChild().getJSDocInfo() != null) {
+      return true;
+    }
+    // Check inline parameter annotations
+    Node param = fn.getChildAtIndex(1).getFirstChild();
+    while (param != null) {
+      if (param.getJSDocInfo() != null) {
+        return true;
+      }
+      param = param.getNext();
+    }
+    return false;
   }
 
   /**

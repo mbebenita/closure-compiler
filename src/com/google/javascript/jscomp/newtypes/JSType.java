@@ -18,16 +18,17 @@ package com.google.javascript.jscomp.newtypes;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  *
@@ -58,14 +59,10 @@ public abstract class JSType {
   protected static final int TOP_SCALAR_MASK =
       NUMBER_MASK | STRING_MASK | BOOLEAN_MASK | NULL_MASK | UNDEFINED_MASK;
 
-  // A type tainted with this is non local, but it's not the type of a formal,
-  // eg, it can be a prop of a formal whose decl type is a record type.
-  static String GENERIC_LOCATION = "%";
-
   // Used only for development
   public static boolean mockToString = false;
 
-  private static JSType makeType(int mask, String location,
+  private static JSType makeType(int mask,
       ImmutableSet<ObjectType> objs, String typeVar,
       ImmutableSet<EnumType> enums) {
     // Fix up the mask for objects and enums
@@ -85,20 +82,23 @@ public abstract class JSType {
       }
     }
 
-    if (objs == null && typeVar == null && enums == null && location == null) {
+    if (objs == null && typeVar == null && enums == null) {
       return MaskType.make(mask);
     }
-    if (mask == NON_SCALAR_MASK && location == null) {
+    if (!JSType.isInhabitable(objs)) {
+      return BOTTOM;
+    }
+    if (mask == NON_SCALAR_MASK) {
       return new ObjsType(objs);
     }
-    if (mask == (NON_SCALAR_MASK | NULL_MASK) && location == null) {
+    if (mask == (NON_SCALAR_MASK | NULL_MASK)) {
       return new NullableObjsType(objs);
     }
-    return new UnionType(mask, location, objs, typeVar, enums);
+    return new UnionType(mask, objs, typeVar, enums);
   }
 
   private static JSType makeType(int mask) {
-    return makeType(mask, null, null, null, null);
+    return makeType(mask, null, null, null);
   }
 
   protected abstract int getMask();
@@ -109,24 +109,22 @@ public abstract class JSType {
 
   protected abstract ImmutableSet<EnumType> getEnums();
 
-  public abstract String getLocation();
-
   // Factory method for wrapping a function in a JSType
   public static JSType fromFunctionType(FunctionType fn) {
-    return makeType(NON_SCALAR_MASK, null,
+    return makeType(NON_SCALAR_MASK,
         ImmutableSet.of(ObjectType.fromFunction(fn)), null, null);
   }
 
   public static JSType fromObjectType(ObjectType obj) {
-    return makeType(NON_SCALAR_MASK, null, ImmutableSet.of(obj), null, null);
+    return makeType(NON_SCALAR_MASK, ImmutableSet.of(obj), null, null);
   }
 
   public static JSType fromTypeVar(String template) {
-    return makeType(TYPEVAR_MASK, null, null, template, null);
+    return makeType(TYPEVAR_MASK, null, template, null);
   }
 
   static JSType fromEnum(EnumType e) {
-    return makeType(ENUM_MASK, null, null, null, ImmutableSet.of(e));
+    return makeType(ENUM_MASK, null, null, ImmutableSet.of(e));
   }
 
   boolean isValidType() {
@@ -168,6 +166,7 @@ public abstract class JSType {
   public static final JSType TOP_STRUCT = fromObjectType(ObjectType.TOP_STRUCT);
   public static final JSType TOP_DICT = fromObjectType(ObjectType.TOP_DICT);
   private static JSType TOP_FUNCTION = null;
+  private static JSType QMARK_FUNCTION = null;
 
   // Some commonly used types
   public static final JSType NULL_OR_UNDEF =
@@ -179,7 +178,7 @@ public abstract class JSType {
   private static final JSType ALMOST_TOP = makeType(
       TRUE_MASK | FALSE_MASK | NUMBER_MASK | STRING_MASK | NULL_MASK |
       UNDEFINED_MASK | NON_SCALAR_MASK,
-      null, ImmutableSet.of(ObjectType.TOP_OBJECT), null, null);
+      ImmutableSet.of(ObjectType.TOP_OBJECT), null, null);
 
   public static JSType topFunction() {
     if (TOP_FUNCTION == null) {
@@ -190,7 +189,10 @@ public abstract class JSType {
 
   // Corresponds to Function, which is a subtype and supertype of all functions.
   static JSType qmarkFunction() {
-    return fromFunctionType(FunctionType.QMARK_FUNCTION);
+    if (QMARK_FUNCTION == null) {
+      QMARK_FUNCTION = fromFunctionType(FunctionType.QMARK_FUNCTION);
+    }
+    return QMARK_FUNCTION;
   }
 
   public boolean isTop() {
@@ -222,10 +224,6 @@ public abstract class JSType {
     return getMask() != 0 && (getMask() | nullUndefMask) == nullUndefMask;
   }
 
-  public boolean isFromUndeclaredFormal() {
-    return getLocation() != null;
-  }
-
   public boolean isScalar() {
     return getMask() == NUMBER_MASK
         || getMask() == STRING_MASK
@@ -235,13 +233,11 @@ public abstract class JSType {
   }
 
   // True iff there exists a value that can have this type
-  public boolean isInhabitable() {
-    if (isBottom()) {
-      return false;
-    } else if (getObjs() == null) {
+  private static boolean isInhabitable(Set<ObjectType> objs) {
+    if (objs == null) {
       return true;
     }
-    for (ObjectType obj : getObjs()) {
+    for (ObjectType obj : objs) {
       if (!obj.isInhabitable()) {
         return false;
       }
@@ -364,7 +360,6 @@ public abstract class JSType {
     }
 
     int newMask = lhs.getMask() | rhs.getMask();
-    String newLoc = joinLocs(lhs.getLocation(), rhs.getLocation());
     ImmutableSet<ObjectType> newObjs =
         ObjectType.joinSets(lhs.getObjs(), rhs.getObjs());
     String newTypevar =
@@ -372,24 +367,18 @@ public abstract class JSType {
     ImmutableSet<EnumType> newEnums =
         EnumType.union(lhs.getEnums(), rhs.getEnums());
     if (newEnums == null) {
-      return makeType(newMask, newLoc, newObjs, newTypevar, null);
+      return makeType(newMask, newObjs, newTypevar, null);
     }
-    JSType tmpJoin = makeType(
-        newMask & ~ENUM_MASK, newLoc, newObjs, newTypevar, null);
-    return makeType(newMask, newLoc, newObjs, newTypevar,
+    JSType tmpJoin = makeType(newMask & ~ENUM_MASK, newObjs, newTypevar, null);
+    return makeType(newMask, newObjs, newTypevar,
         EnumType.normalizeForJoin(newEnums, tmpJoin));
   }
 
-  private static String joinLocs(String loc1, String loc2) {
-    if (loc1 == null || loc2 == null) {
-      return null;
-    }
-    return loc1.equals(loc2) ? loc1 : GENERIC_LOCATION;
-  }
-
   public JSType substituteGenerics(Map<String, JSType> concreteTypes) {
-    if (isTop() || isUnknown()
-        || getObjs() == null && getTypeVar() == null) {
+    if (isTop()
+        || isUnknown()
+        || getObjs() == null && getTypeVar() == null
+        || concreteTypes.isEmpty()) {
       return this;
     }
     ImmutableSet<ObjectType> newObjs = null;
@@ -401,7 +390,7 @@ public abstract class JSType {
       newObjs = builder.build();
     }
     JSType current = makeType(
-        getMask() & ~TYPEVAR_MASK, getLocation(), newObjs, null, getEnums());
+        getMask() & ~TYPEVAR_MASK, newObjs, null, getEnums());
     if ((getMask() & TYPEVAR_MASK) != 0) {
       current = JSType.join(current, concreteTypes.containsKey(getTypeVar()) ?
           concreteTypes.get(getTypeVar()) : fromTypeVar(getTypeVar()));
@@ -412,7 +401,7 @@ public abstract class JSType {
   private static void updateTypemap(
       Multimap<String, JSType> typeMultimap,
       String typeParam, JSType type) {
-    Set<JSType> typesToRemove = Sets.newHashSet();
+    Set<JSType> typesToRemove = new HashSet<>();
     for (JSType other : typeMultimap.get(typeParam)) {
       JSType unified = unifyUnknowns(type, other);
       if (unified != null) {
@@ -477,8 +466,8 @@ public abstract class JSType {
       return null;
     }
 
-    Set<ObjectType> ununified = Sets.newHashSet(t2.getObjs());
-    Set<ObjectType> unifiedObjs = Sets.newHashSet();
+    Set<ObjectType> ununified = new HashSet<>(t2.getObjs());
+    Set<ObjectType> unifiedObjs = new HashSet<>();
     for (ObjectType objType1 : t1.getObjs()) {
       ObjectType unified = objType1;
       boolean hasUnified = false;
@@ -498,7 +487,7 @@ public abstract class JSType {
     if (!ununified.isEmpty()) {
       return null;
     }
-    return makeType(t1Mask, null, ImmutableSet.copyOf(unifiedObjs),
+    return makeType(t1Mask, ImmutableSet.copyOf(unifiedObjs),
         t1.getTypeVar(), newEnums);
   }
 
@@ -517,7 +506,7 @@ public abstract class JSType {
     } else if (getMask() == TYPEVAR_MASK
         && typeParameters.contains(getTypeVar())) {
       updateTypemap(typeMultimap, getTypeVar(),
-          makeType(promoteBoolean(other.getMask()), null, other.getObjs(),
+          makeType(promoteBoolean(other.getMask()), other.getObjs(),
               other.getTypeVar(), other.getEnums()));
       return true;
     } else if (other.isTop()) {
@@ -532,7 +521,7 @@ public abstract class JSType {
     } else if (other.getEnums() == null) {
       return false;
     } else {
-      ununifiedEnums = Sets.newHashSet();
+      ununifiedEnums = new HashSet<>();
       for (EnumType e : getEnums()) {
         if (!other.getEnums().contains(e)) {
           return false;
@@ -550,7 +539,7 @@ public abstract class JSType {
 
     Set<ObjectType> ununified = ImmutableSet.of();
     if (other.getObjs() != null) {
-      ununified = Sets.newHashSet(other.getObjs());
+      ununified = new HashSet<>(other.getObjs());
     }
     // Each obj in this must unify w/ exactly one obj in other.
     // However, we don't check that two different objects of this don't unify
@@ -591,7 +580,7 @@ public abstract class JSType {
         return false;
       }
       JSType templateType = makeType(
-          promoteBoolean(templateMask), null,
+          promoteBoolean(templateMask),
           ImmutableSet.copyOf(ununified), otherTypevar,
           ununifiedEnums == null ? null : ImmutableSet.copyOf(ununifiedEnums));
       updateTypemap(typeMultimap, getTypeVar(), templateType);
@@ -602,7 +591,10 @@ public abstract class JSType {
     }
   }
 
-  // Specialize this type by meeting with other, but keeping location
+  // TODO(dimvar): Now that we don't have locations, we may be able to combine
+  // specialize and meet into a single function.
+  // Specialize might still not be symmetric however, b/c of truthy/falsy.
+
   public JSType specialize(JSType other) {
     if (other.isTop() || other.isUnknown()) {
       return this;
@@ -611,7 +603,7 @@ public abstract class JSType {
     } else if (other.isFalsy()) {
       return makeFalsy();
     } else if (this.isTop() || this.isUnknown()) {
-      return other.withLocation(getLocation());
+      return other;
     }
     int newMask = getMask() & other.getMask();
     String newTypevar;
@@ -622,12 +614,11 @@ public abstract class JSType {
       newMask &= ~TYPEVAR_MASK;
     }
     return meetEnums(
-        newMask, getMask() | other.getMask(), getLocation(),
+        newMask, getMask() | other.getMask(),
         ObjectType.specializeSet(getObjs(), other.getObjs()),
         newTypevar, getObjs(), other.getObjs(), getEnums(), other.getEnums());
   }
 
-  // Meet two types, location agnostic
   public static JSType meet(JSType lhs, JSType rhs) {
     if (lhs.isTop()) {
       return rhs;
@@ -647,7 +638,7 @@ public abstract class JSType {
       newMask = newMask & ~TYPEVAR_MASK;
     }
     return meetEnums(
-        newMask, lhs.getMask() | rhs.getMask(), null,
+        newMask, lhs.getMask() | rhs.getMask(),
         ObjectType.meetSets(lhs.getObjs(), rhs.getObjs()),
         newTypevar, lhs.getObjs(), rhs.getObjs(),
         lhs.getEnums(), rhs.getEnums());
@@ -659,11 +650,11 @@ public abstract class JSType {
    * So, both methods finish off by calling this one.
    */
   private static JSType meetEnums(int newMask, int unionMask,
-      String newLocation, ImmutableSet<ObjectType> newObjs, String newTypevar,
+      ImmutableSet<ObjectType> newObjs, String newTypevar,
       ImmutableSet<ObjectType> objs1, ImmutableSet<ObjectType> objs2,
       ImmutableSet<EnumType> enums1, ImmutableSet<EnumType> enums2) {
     if (Objects.equals(enums1, enums2)) {
-      return makeType(newMask, newLocation, newObjs, newTypevar, enums1);
+      return makeType(newMask, newObjs, newTypevar, enums1);
     }
     ImmutableSet.Builder<EnumType> enumBuilder = ImmutableSet.builder();
     ImmutableSet<EnumType> allEnums = EnumType.union(enums1, enums2);
@@ -690,7 +681,7 @@ public abstract class JSType {
           newMask &= ~enumeratedType.getMask();
         }
       } else if (objs1 != null || objs2 != null) {
-        Set<ObjectType> objsToRemove = Sets.newHashSet();
+        Set<ObjectType> objsToRemove = new HashSet<>();
         ObjectType enumObj = Iterables.getOnlyElement(enumeratedType.getObjs());
         if (objs1 != null) {
           for (ObjectType obj1 : objs1) {
@@ -713,8 +704,7 @@ public abstract class JSType {
         }
       }
     }
-    return makeType(
-        newMask, newLocation, newObjs, newTypevar, enumBuilder.build());
+    return makeType(newMask, newObjs, newTypevar, enumBuilder.build());
   }
 
   private JSType makeTruthy() {
@@ -722,7 +712,7 @@ public abstract class JSType {
       return this;
     }
     return makeType(getMask() & ~NULL_MASK & ~FALSE_MASK & ~UNDEFINED_MASK,
-        getLocation(), getObjs(), getTypeVar(), getEnums());
+        getObjs(), getTypeVar(), getEnums());
   }
 
   private JSType makeFalsy() {
@@ -730,7 +720,7 @@ public abstract class JSType {
       return this;
     }
     return makeType(getMask() & ~TRUE_MASK & ~NON_SCALAR_MASK,
-        getLocation(), null, getTypeVar(), getEnums());
+        null, getTypeVar(), getEnums());
   }
 
   public static JSType plus(JSType lhs, JSType rhs) {
@@ -808,8 +798,7 @@ public abstract class JSType {
     }
     int newMask = getMask() & ~otherMask;
     if ((otherMask & NON_SCALAR_MASK) == 0) {
-      return makeType(
-          newMask, getLocation(), getObjs(), getTypeVar(), getEnums());
+      return makeType(newMask, getObjs(), getTypeVar(), getEnums());
     }
     // TODO(dimvar): If objs and enums stay unchanged, reuse, don't recreate.
     Preconditions.checkState(other.getObjs().size() == 1,
@@ -835,17 +824,7 @@ public abstract class JSType {
       }
       newEnums = builder.build();
     }
-    return makeType(newMask, getLocation(), newObjs, getTypeVar(), newEnums);
-  }
-
-  public JSType withLocation(String location) {
-    if (Objects.equals(location, getLocation())) {
-      return this;
-    }
-    String newLoc = location == null ? null : JSType.GENERIC_LOCATION;
-    return makeType(getMask(), location,
-        getObjs() == null ? null : ObjectType.withLocation(getObjs(), newLoc),
-        getTypeVar(), getEnums());
+    return makeType(newMask, newObjs, getTypeVar(), newEnums);
   }
 
   public FunctionType getFunTypeIfSingletonObj() {
@@ -890,9 +869,8 @@ public abstract class JSType {
       Preconditions.checkState(getEnums() != null);
       return this;
     }
-    return makeType(
-        getMask(), getLocation(),
-        ObjectType.withLooseObjects(getObjs()), getTypeVar(), getEnums());
+    return makeType(getMask(), ObjectType.withLooseObjects(getObjs()),
+        getTypeVar(), getEnums());
   }
 
   public JSType getProp(QualifiedName qname) {
@@ -941,29 +919,27 @@ public abstract class JSType {
   public JSType withoutProperty(QualifiedName qname) {
     return getObjs() == null ?
         this :
-        makeType(getMask(), getLocation(),
-            ObjectType.withoutProperty(getObjs(), qname),
+        makeType(getMask(), ObjectType.withoutProperty(getObjs(), qname),
             getTypeVar(), getEnums());
   }
 
   public JSType withProperty(QualifiedName qname, JSType type) {
     Preconditions.checkArgument(type != null);
-    if (isUnknown()) {
+    if (isUnknown() || isBottom()) {
       return this;
     }
     Preconditions.checkState(getObjs() != null);
-    return makeType(getMask(), getLocation(),
-        ObjectType.withProperty(getObjs(), qname, type),
+    return makeType(getMask(), ObjectType.withProperty(getObjs(), qname, type),
         getTypeVar(), getEnums());
   }
 
   public JSType withDeclaredProperty(
       QualifiedName qname, JSType type, boolean isConstant) {
-    Preconditions.checkState(getObjs() != null && getLocation() == null);
+    Preconditions.checkState(getObjs() != null);
     if (type == null && isConstant) {
       type = JSType.UNKNOWN;
     }
-    return makeType(getMask(), null,
+    return makeType(getMask(),
         ObjectType.withDeclaredProperty(getObjs(), qname, type, isConstant),
         getTypeVar(), getEnums());
   }
@@ -971,22 +947,8 @@ public abstract class JSType {
   public JSType withPropertyRequired(String pname) {
     return (isUnknown() || getObjs() == null) ?
         this :
-        makeType(getMask(), getLocation(),
-            ObjectType.withPropertyRequired(getObjs(), pname),
+        makeType(getMask(), ObjectType.withPropertyRequired(getObjs(), pname),
             getTypeVar(), getEnums());
-  }
-
-  static List<JSType> fixLengthOfTypeList(
-      int desiredLength, List<JSType> typeList) {
-    int length = typeList.size();
-    if (length == desiredLength) {
-      return typeList;
-    }
-    ImmutableList.Builder<JSType> builder = ImmutableList.builder();
-    for (int i = 0; i < desiredLength; i++) {
-      builder.add(i < length ? typeList.get(i) : UNKNOWN);
-    }
-    return builder.build();
   }
 
   @Override
@@ -998,11 +960,7 @@ public abstract class JSType {
   }
 
   public StringBuilder appendTo(StringBuilder builder) {
-    if (getLocation() == null) {
-      return typeToString(builder);
-    } else {
-      return typeToString(builder).append('@').append(getLocation());
-    }
+    return typeToString(builder);
   }
 
   /** For use in {@link #typeToString} */
@@ -1055,7 +1013,7 @@ public abstract class JSType {
                 if (getObjs().size() == 1) {
                   Iterables.getOnlyElement(getObjs()).appendTo(builder);
                 } else {
-                  Set<String> strReps = Sets.newTreeSet();
+                  Set<String> strReps = new TreeSet<>();
                   for (ObjectType obj : getObjs()) {
                     strReps.add(obj.toString());
                   }
@@ -1068,7 +1026,7 @@ public abstract class JSType {
                 if (getEnums().size() == 1) {
                   builder.append(Iterables.getOnlyElement(getEnums()));
                 } else {
-                  Set<String> strReps = Sets.newTreeSet();
+                  Set<String> strReps = new TreeSet<>();
                   for (EnumType e : getEnums()) {
                     strReps.add(e.toString());
                   }
@@ -1097,6 +1055,9 @@ public abstract class JSType {
     if (o == null) {
       return false;
     }
+    if (this == o) {
+      return true;
+    }
     Preconditions.checkArgument(o instanceof JSType);
     JSType t2 = (JSType) o;
     return getMask() == t2.getMask() && Objects.equals(getObjs(), t2.getObjs());
@@ -1116,11 +1077,8 @@ final class UnionType extends JSType {
   private final String typeVar;
   // enums is null for types that don't have enums
   private final ImmutableSet<EnumType> enums;
-  // Non-null for types which represent values flowed to a function from
-  // outside. Local vals are null, which gives stricter type checking.
-  private final String location;
 
-  UnionType(int mask, String location, ImmutableSet<ObjectType> objs,
+  UnionType(int mask, ImmutableSet<ObjectType> objs,
       String typeVar, ImmutableSet<EnumType> enums) {
     if (enums == null) {
       this.enums = null;
@@ -1143,7 +1101,6 @@ final class UnionType extends JSType {
     }
 
     this.typeVar = typeVar;
-    this.location = location;
     this.mask = mask;
 
     Preconditions.checkState(isValidType(),
@@ -1153,7 +1110,7 @@ final class UnionType extends JSType {
   }
 
   UnionType(int mask) {
-    this(mask, null, null, null, null);
+    this(mask, null, null, null);
   }
 
   protected int getMask() {
@@ -1170,10 +1127,6 @@ final class UnionType extends JSType {
 
   protected ImmutableSet<EnumType> getEnums() {
     return enums;
-  }
-
-  public String getLocation() {
-    return location;
   }
 }
 
@@ -1279,10 +1232,6 @@ class MaskType extends JSType {
   protected ImmutableSet<EnumType> getEnums() {
     return null;
   }
-
-  public String getLocation() {
-    return null;
-  }
 }
 
 final class ObjsType extends JSType {
@@ -1307,10 +1256,6 @@ final class ObjsType extends JSType {
   protected ImmutableSet<EnumType> getEnums() {
     return null;
   }
-
-  public String getLocation() {
-    return null;
-  }
 }
 
 final class NullableObjsType extends JSType {
@@ -1333,10 +1278,6 @@ final class NullableObjsType extends JSType {
   }
 
   protected ImmutableSet<EnumType> getEnums() {
-    return null;
-  }
-
-  public String getLocation() {
     return null;
   }
 }

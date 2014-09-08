@@ -1,5 +1,5 @@
 /*
- * Copyright 2009 The Closure Compiler Authors
+ * Copyright 2014 The Closure Compiler Authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,25 @@
  * limitations under the License.
  */
 
-/**
- * @fileoverview Definitions for the JSON specification.
- * @see http://www.json.org/json2.js.
- * @externs
- */
+package com.google.javascript.refactoring;
 
-// TODO(nicksantos): This has been moved to es5.js. Remove this file.
+import com.google.javascript.jscomp.AbstractCompiler;
+
+/**
+ * Class that holds metadata (or meta objects) for use by JsFlume that aren't
+ * contained within the Node itself.
+ *
+ * @author mknichel@google.com (Mark Knichel)
+ */
+public final class NodeMetadata {
+
+  private final AbstractCompiler compiler;
+
+  public NodeMetadata(AbstractCompiler compiler) {
+    this.compiler = compiler;
+  }
+
+  public AbstractCompiler getCompiler() {
+    return compiler;
+  }
+}

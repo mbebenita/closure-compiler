@@ -30,8 +30,10 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.common.io.Files;
+
 import com.google.javascript.jscomp.CompilerOptions.TweakProcessing;
+import com.google.javascript.jscomp.deps.ClosureBundler;
+import com.google.javascript.jscomp.deps.SourceCodeEscapers;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.TokenStream;
 import com.google.protobuf.CodedOutputStream;
@@ -212,6 +214,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       boolean manageClosureDependencies,
       boolean onlyClosureDependencies,
       boolean processCommonJSModules,
+      boolean rewriteEs6Modules,
       List<String> closureEntryPoints)
       throws FlagUsageException {
     if (onlyClosureDependencies) {
@@ -231,6 +234,12 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
         .setDependencySorting(true)
         .setMoocherDropping(false)
         .setEntryPoints(closureEntryPoints);
+    } else if (rewriteEs6Modules) {
+      return new DependencyOptions()
+        .setDependencyPruning(false)
+        .setDependencySorting(true)
+        .setMoocherDropping(false)
+        .setEntryPoints(closureEntryPoints);
     } else if (manageClosureDependencies ||
         closureEntryPoints.size() > 0) {
       return new DependencyOptions()
@@ -241,6 +250,9 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     }
     return null;
   }
+
+  protected abstract void addWhitelistWarningsGuard(
+      CompilerOptions options, File whitelistFile);
 
   /**
    * Sets options based on the configurations set flags API.
@@ -259,9 +271,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     }
 
     if (!config.warningsWhitelistFile.isEmpty()) {
-      options.addWarningsGuard(
-          WhitelistWarningsGuard.fromFile(
-              new File(config.warningsWhitelistFile)));
+      addWhitelistWarningsGuard(options, new File(config.warningsWhitelistFile));
     }
 
     createDefineOrTweakReplacements(config.define, options, false);
@@ -273,6 +283,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
         config.manageClosureDependencies,
         config.onlyClosureDependencies,
         config.processCommonJSModules,
+        config.rewriteEs6Modules,
         config.closureEntryPoints);
     if (depOptions != null) {
       options.setDependencyOptions(depOptions);
@@ -378,6 +389,8 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
     options.acceptConstKeyword = config.acceptConstKeyword;
     options.transformAMDToCJSModules = config.transformAMDToCJSModules;
     options.processCommonJSModules = config.processCommonJSModules;
+    options.rewriteEs6Modules = config.rewriteEs6Modules;
+    options.transpileOnly = config.transpileOnly;
     options.commonJSModulePathPrefix = config.commonJSModulePathPrefix;
     options.angularPass = config.angularPass;
     options.tracer = config.tracerMode;
@@ -911,8 +924,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
   }
 
   Function<String, String> getJavascriptEscaper() {
-    throw new UnsupportedOperationException(
-        "SourceCodeEscapers is not in the standard release of Guava yet :(");
+    return SourceCodeEscapers.javascriptEscaper().asFunction();
   }
 
   void outputSingleBinary() throws IOException {
@@ -1509,6 +1521,8 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
   @VisibleForTesting
   void printBundleTo(Iterable<CompilerInput> inputs, Appendable out)
       throws IOException {
+    ClosureBundler bundler = new ClosureBundler();
+
     for (CompilerInput input : inputs) {
       // Every module has an empty file in it. This makes it easier to implement
       // cross-module code motion.
@@ -1536,24 +1550,7 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       out.append(displayName);
       out.append("\n");
 
-      if (input.isModule()) {
-        // Add module preamble
-        String moduleName = Iterables.get(input.getProvides(), 0);
-        out.append(
-            "goog.loadModule('" + moduleName + "', function(exports) {" +
-            "'use strict';");
-      }
-
-      Files.copy(file, inputCharset, out);
-
-      if (input.isModule()) {
-        // Add module postamble
-        out.append(
-            "\n" + // terminate any trailing single line comment.
-            ";return exports;" +
-            "});" +
-            "\n//# sourceURL=" + displayName + "\n");
-      }
+      bundler.appendTo(out, input, file, inputCharset);
 
       out.append("\n");
     }
@@ -2054,6 +2051,25 @@ abstract class AbstractCommandLineRunner<A extends Compiler,
       return this;
     }
 
+    private boolean rewriteEs6Modules = false;
+
+    /**
+     * Sets whether to process ES6 modules.
+     */
+    CommandLineConfig setRewriteEs6Modules(boolean rewriteEs6Modules) {
+      this.rewriteEs6Modules = rewriteEs6Modules;
+      return this;
+    }
+
+    private boolean transpileOnly = false;
+
+    /**
+     * Sets whether to run up to ES6 transpilation only.
+     */
+    CommandLineConfig setTranspileOnly(boolean transpileOnly) {
+      this.transpileOnly = transpileOnly;
+      return this;
+    }
 
     private String commonJSModulePathPrefix =
         ProcessCommonJSModules.DEFAULT_FILENAME_PREFIX;

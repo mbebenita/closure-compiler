@@ -51,6 +51,7 @@ class CodeGenerator {
   private final CharsetEncoder outputCharsetEncoder;
 
   private final boolean preferSingleQuotes;
+  private final boolean preserveTypeAnnotations;
   private final boolean trustedStrings;
   private final LanguageMode languageMode;
 
@@ -60,6 +61,7 @@ class CodeGenerator {
     preferSingleQuotes = false;
     trustedStrings = true;
     languageMode = LanguageMode.ECMASCRIPT5;
+    preserveTypeAnnotations = false;
   }
 
   static CodeGenerator forCostEstimation(CodeConsumer consumer) {
@@ -84,6 +86,7 @@ class CodeGenerator {
     this.preferSingleQuotes = options.preferSingleQuotes;
     this.trustedStrings = options.trustedStrings;
     this.languageMode = options.getLanguageOut();
+    this.preserveTypeAnnotations = options.preserveTypeAnnotations;
   }
 
   /**
@@ -108,6 +111,12 @@ class CodeGenerator {
   void add(Node n, Context context) {
     if (!cc.continueProcessing()) {
       return;
+    }
+
+    if (preserveTypeAnnotations) {
+      if (n.getJSDocInfo() != null) {
+        add(JSDocInfoPrinter.print(n.getJSDocInfo()));
+      }
     }
 
     int type = n.getType();
@@ -243,22 +252,6 @@ class CodeGenerator {
 
       case Token.ARRAY_PATTERN:
         addArrayPattern(n);
-        break;
-
-      case Token.ARRAY_COMP:
-        add("[");
-        for (Node child = first; child != null; child = child.getNext()) {
-          add(child);
-        }
-        add("]");
-        break;
-
-      case Token.GENERATOR_COMP:
-        add("(");
-        for (Node child = first; child != null; child = child.getNext()) {
-          add(child);
-        }
-        add(")");
         break;
 
       case Token.PARAM_LIST:
@@ -490,7 +483,7 @@ class CodeGenerator {
 
       case Token.GETTER_DEF:
       case Token.SETTER_DEF:
-      case Token.MEMBER_DEF:
+      case Token.MEMBER_DEF: {
         n.getParent().toStringTree();
         Preconditions.checkState(n.getParent().isObjectLit()
             || n.getParent().isClassMembers());
@@ -504,7 +497,7 @@ class CodeGenerator {
           add("static ");
         }
 
-        if (n.isGeneratorFunction()) {
+        if (n.getFirstChild().isGeneratorFunction()) {
           Preconditions.checkState(type == Token.MEMBER_DEF);
           add("*");
         }
@@ -551,6 +544,7 @@ class CodeGenerator {
         add(parameters);
         add(body, Context.PRESERVE_BLOCK);
         break;
+      }
 
       case Token.SCRIPT:
       case Token.BLOCK: {
@@ -625,7 +619,7 @@ class CodeGenerator {
 
       case Token.FOR_OF:
         // A "for-of" inside an array comprehension only has two children.
-        Preconditions.checkState(childCount == 2 || childCount == 3);
+        Preconditions.checkState(childCount == 3);
         add("for");
         cc.maybeInsertSpace();
         add("(");
@@ -633,10 +627,8 @@ class CodeGenerator {
         add("of");
         add(first.getNext());
         add(")");
-        if (childCount == 3) {
-          addNonEmptyStatement(
-              last, getContextForNonEmptyExpression(context), false);
-        }
+        addNonEmptyStatement(
+            last, getContextForNonEmptyExpression(context), false);
         break;
 
       case Token.DO:
@@ -915,16 +907,12 @@ class CodeGenerator {
             cc.listSeparator();
           }
 
-          if (c.isGetterDef() || c.isSetterDef() || c.isStringKey() || c.isMemberDef()) {
-            add(c);
-          } else {
-            Preconditions.checkState(c.isComputedProp());
-            add("[");
-            add(c.getFirstChild());
-            add("]");
-            add(":");
-            add(c.getLastChild());
-          }
+          Preconditions.checkState(c.isComputedProp()
+              || c.isGetterDef()
+              || c.isSetterDef()
+              || c.isStringKey()
+              || c.isMemberDef());
+          add(c);
         }
         add("}");
         if (needsParens) {
@@ -932,6 +920,32 @@ class CodeGenerator {
         }
         break;
       }
+
+      case Token.COMPUTED_PROP:
+        if (n.getBooleanProp(Node.COMPUTED_PROP_GETTER)) {
+          add("get ");
+        } else if (n.getBooleanProp(Node.COMPUTED_PROP_SETTER)) {
+          add("set ");
+        } else if (last.getBooleanProp(Node.GENERATOR_FN)) {
+          add("*");
+        }
+        add("[");
+        add(first);
+        add("]");
+        if (n.getBooleanProp(Node.COMPUTED_PROP_METHOD)
+            || n.getBooleanProp(Node.COMPUTED_PROP_GETTER)
+            || n.getBooleanProp(Node.COMPUTED_PROP_SETTER)) {
+          Node function = first.getNext();
+          Node params = function.getFirstChild().getNext();
+          Node body = function.getLastChild();
+
+          add(params);
+          add(body, Context.PRESERVE_BLOCK);
+        } else {
+          add(":");
+          add(first.getNext());
+        }
+        break;
 
       case Token.OBJECT_PATTERN:
         addObjectPattern(n, context);
@@ -1000,7 +1014,8 @@ class CodeGenerator {
         break;
 
       default:
-        throw new Error("Unknown type " + type + "\n" + n.toStringTree());
+        throw new RuntimeException(
+            "Unknown type " + Token.name(type) + "\n" + n.toStringTree());
     }
 
     cc.endSourceMapping(n);

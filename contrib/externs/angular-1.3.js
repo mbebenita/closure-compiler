@@ -20,8 +20,6 @@
  * TODO: Mocks.
  * TODO: Remaining Services:
  *     $compileProvider
- *     $controller
- *     $controllerProvider
  *     $cookies
  *     $cookieStore
  *     $document
@@ -481,6 +479,7 @@ angular.Directive.transclude;
  *   next: function(): !angular.JQLite,
  *   on: function(string, Function): !angular.JQLite,
  *   off: function(string=, Function=): !angular.JQLite,
+ *   one: function(string, Function): !angular.JQLite,
  *   parent: function(): !angular.JQLite,
  *   prepend: function(JQLiteSelector): !angular.JQLite,
  *   prop: function(string, *=): *,
@@ -854,7 +853,9 @@ angular.Module.requires;
  *   $watch: function(
  *       (string|Function), (string|Function)=, boolean=):function(),
  *   $watchCollection: function(
- *       (string|Function), (string|Function)=):function()
+ *       (string|Function), (string|Function)=):function(),
+ *   $watchGroup: function(
+ *       Array.<string|Function>, (string|Function)=):function()
  *   }}
  */
 angular.Scope;
@@ -1139,6 +1140,27 @@ angular.$cacheFactory.Cache.prototype.destroy = function() {};
  *   }}
  */
 angular.$cacheFactory.Cache.Info;
+
+/******************************************************************************
+ * $controller Service
+ *****************************************************************************/
+
+/**
+ * @typedef {function((Function|string), Object):Object}
+ */
+angular.$controller;
+
+/******************************************************************************
+ * $controllerProvider Service
+ *****************************************************************************/
+
+/**
+ * @typedef {{
+ *   register: function((string|Object), (Function|Array)),
+ *   allowGlobals: function()
+ *   }}
+ */
+angular.$controllerProvider;
 
 /******************************************************************************
  * $exceptionHandler Service
@@ -1667,6 +1689,56 @@ angular.NgModelController.prototype.$viewChangeListeners;
  */
 angular.NgModelController.prototype.$viewValue;
 
+/**
+ * @type {!Object.<string, function(?):*>}
+ */
+angular.NgModelController.prototype.$validators;
+
+/**
+ * @type {boolean}
+ */
+angular.NgModelController.prototype.$untouched;
+
+/**
+ * @type {boolean}
+ */
+angular.NgModelController.prototype.$touched;
+
+/**
+ * @param {?} value
+ */
+angular.NgModelController.prototype.$isEmpty = function(value) {};
+
+/**
+ * @type {function()}
+ */
+angular.NgModelController.prototype.$setPristine = function() {};
+
+/**
+ * @type {function()}
+ */
+angular.NgModelController.prototype.$setUntouched = function() {};
+
+/**
+ * @type {function()}
+ */
+angular.NgModelController.prototype.$setTouched = function() {};
+
+/**
+ * @type {function()}
+ */
+angular.NgModelController.prototype.$rollbackViewValue = function() {};
+
+/**
+ * @type {function()}
+ */
+angular.NgModelController.prototype.$validate = function() {};
+
+/**
+ * @type {function()}
+ */
+angular.NgModelController.prototype.$commitViewValue = function() {};
+
 /******************************************************************************
  * FormController
  *****************************************************************************/
@@ -1680,6 +1752,16 @@ angular.FormController = function() {};
  * @param {*} control
  */
 angular.FormController.prototype.$addControl = function(control) {};
+
+/**
+ * @type {function()}
+ */
+angular.FormController.prototype.$rollbackViewValue = function() {};
+
+/**
+ * @type {function()}
+ */
+angular.FormController.prototype.$commitViewValue = function() {};
 
 /**
  * @type {boolean}
@@ -1720,6 +1802,16 @@ angular.FormController.prototype.$setDirty = function() {};
  * @type {function()}
  */
 angular.FormController.prototype.$setPristine = function() {};
+
+/**
+ * @type {function()}
+ */
+angular.FormController.prototype.$setSubmitted = function() {};
+
+/**
+ * @type {boolean}
+ */
+angular.FormController.prototype.$submitted;
 
 /**
  * @param {string} validationToken

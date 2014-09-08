@@ -17,6 +17,7 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -68,9 +69,36 @@ public class CompilerOptions implements Serializable, Cloneable {
   private LanguageMode languageOut;
 
   /**
+   * If true, transpile ES6 to ES3 only. All others passes will be skipped.
+   */
+  boolean transpileOnly;
+
+  /**
+   * Only do transpilation, don't inject es6_runtime.js or
+   * do any optimizations (this is useful for per-file transpilation).
+   */
+  public void setTranspileOnly(boolean value) {
+    transpileOnly = value;
+  }
+
+  /**
    * Whether the compiler accepts the `const' keyword.
    */
   boolean acceptConstKeyword;
+
+  /**
+   * Whether to infer consts. This should not be configurable by
+   * external clients. This is a transitional flag for a new type
+   * of const analysis.
+   *
+   * TODO(nicksantos): Remove this option.
+   */
+  boolean inferConsts = true;
+
+  // TODO(tbreisacher): Remove this method after ctemplate issues are solved.
+  public void setInferConst(boolean value) {
+    inferConsts = value;
+  }
 
   /**
    * Whether the compiler should assume that a function's "this" value
@@ -328,8 +356,14 @@ public class CompilerOptions implements Serializable, Cloneable {
     this.checkMissingReturn = level;
   }
 
+  public enum ExtractPrototypeMemberDeclarationsMode {
+    OFF,
+    USE_GLOBAL_TEMP,
+    USE_IIFE
+  }
+
   /** Extracts common prototype member declarations */
-  public boolean extractPrototypeMemberDeclarations;
+  ExtractPrototypeMemberDeclarationsMode extractPrototypeMemberDeclarations;
 
   /** Removes unused member prototypes */
   public boolean removeUnusedPrototypeProperties;
@@ -731,6 +765,9 @@ public class CompilerOptions implements Serializable, Cloneable {
   /** Rewrite CommonJS modules so that they can be concatenated together. */
   boolean processCommonJSModules = false;
 
+  /** Rewrite ES6 modules so that they can be concatenated together. */
+  boolean rewriteEs6Modules = false;
+
   /** CommonJS module prefix. */
   String commonJSModulePathPrefix =
       ProcessCommonJSModules.DEFAULT_FILENAME_PREFIX;
@@ -739,6 +776,9 @@ public class CompilerOptions implements Serializable, Cloneable {
   //--------------------------------
   // Output options
   //--------------------------------
+
+  /** Do not strip closure-style type annotations from code. */
+  public boolean preserveTypeAnnotations;
 
   /** Output in pretty indented format */
   public boolean prettyPrint;
@@ -863,11 +903,6 @@ public class CompilerOptions implements Serializable, Cloneable {
   String outputCharset;
 
   /**
-   * Whether the named objects types included 'undefined' by default.
-   */
-  boolean looseTypes;
-
-  /**
    * Transitional option.
    */
   boolean enforceAccessControlCodingConventions;
@@ -899,6 +934,8 @@ public class CompilerOptions implements Serializable, Cloneable {
    */
   public boolean instrumentForCoverage;
 
+  /** List of conformance configs to use in CheckConformance */
+  private ImmutableList<ConformanceConfig> conformanceConfigs = ImmutableList.of();
 
   /**
    * Initializes compiler options. All options are disabled by default.
@@ -909,12 +946,13 @@ public class CompilerOptions implements Serializable, Cloneable {
   public CompilerOptions() {
     // Accepted language
     languageIn = LanguageMode.ECMASCRIPT3;
-    languageOut = LanguageMode.ECMASCRIPT3;
+    languageOut = LanguageMode.NO_TRANSPILE;
 
     // Language variation
     acceptConstKeyword = false;
 
     // Checks
+    transpileOnly = false;
     skipAllPasses = false;
     nameAnonymousFunctionsOnly = false;
     devMode = DevMode.OFF;
@@ -957,7 +995,8 @@ public class CompilerOptions implements Serializable, Cloneable {
     smartNameRemoval = false;
     extraSmartNameRemoval = false;
     removeDeadCode = false;
-    extractPrototypeMemberDeclarations = false;
+    extractPrototypeMemberDeclarations =
+        ExtractPrototypeMemberDeclarationsMode.OFF;
     removeUnusedPrototypeProperties = false;
     removeUnusedPrototypePropertiesInExterns = false;
     removeUnusedClassProperties = false;
@@ -1040,6 +1079,7 @@ public class CompilerOptions implements Serializable, Cloneable {
     instrumentForCoverage = false;  // instrument lines
 
     // Output
+    preserveTypeAnnotations = false;
     printInputDelimiter = false;
     prettyPrint = false;
     lineBreak = false;
@@ -1556,6 +1596,7 @@ public class CompilerOptions implements Serializable, Cloneable {
    * Sets ECMAScript version to use.
    */
   public void setLanguage(LanguageMode language) {
+    Preconditions.checkState(languageIn != LanguageMode.NO_TRANSPILE);
     this.languageIn = language;
     this.languageOut = language;
   }
@@ -1565,6 +1606,7 @@ public class CompilerOptions implements Serializable, Cloneable {
    * transpiling from one version to another, use #setLanguage instead.
    */
   public void setLanguageIn(LanguageMode languageIn) {
+    Preconditions.checkState(languageIn != LanguageMode.NO_TRANSPILE);
     this.languageIn = languageIn;
   }
 
@@ -1581,18 +1623,15 @@ public class CompilerOptions implements Serializable, Cloneable {
   }
 
   public LanguageMode getLanguageOut() {
+    if (languageOut == LanguageMode.NO_TRANSPILE) {
+      return languageIn;
+    }
     return languageOut;
   }
 
-  /**
-   * Whether to include "undefined" in the default types.
-   *   For example:
-   *     "{Object}" is normally "Object|null" becomes "Object|null|undefined"
-   *     "{?string}" is normally "string|null" becomes "string|null|undefined"
-   * In either case "!" annotated types excluded both null and undefined.
-   */
-  public void setLooseTypes(boolean looseTypes) {
-    this.looseTypes = looseTypes;
+  boolean needsConversion() {
+    return languageOut != LanguageMode.NO_TRANSPILE
+        && languageIn != languageOut;
   }
 
   @Override
@@ -1812,7 +1851,13 @@ public class CompilerOptions implements Serializable, Cloneable {
   }
 
   public void setExtractPrototypeMemberDeclarations(boolean enabled) {
-    this.extractPrototypeMemberDeclarations = enabled;
+    this.extractPrototypeMemberDeclarations =
+        enabled ? ExtractPrototypeMemberDeclarationsMode.USE_GLOBAL_TEMP
+            : ExtractPrototypeMemberDeclarationsMode.OFF;
+  }
+
+  public void setExtractPrototypeMemberDeclarations(ExtractPrototypeMemberDeclarationsMode mode) {
+    this.extractPrototypeMemberDeclarations = mode;
   }
 
   public void setRemoveUnusedPrototypeProperties(boolean enabled) {
@@ -2016,6 +2061,10 @@ public class CompilerOptions implements Serializable, Cloneable {
     this.preserveGoogRequires = preserveGoogRequires;
   }
 
+  public void setPreserveTypeAnnotations(boolean preserveTypeAnnotations) {
+    this.preserveTypeAnnotations = preserveTypeAnnotations;
+  }
+
   public void setGatherCssNames(boolean gatherCssNames) {
     this.gatherCssNames = gatherCssNames;
   }
@@ -2167,6 +2216,14 @@ public class CompilerOptions implements Serializable, Cloneable {
   }
 
   /**
+   * Rewrites ES6 modules so that modules can be concatenated together,
+   * by renaming all globals to avoid conflicting with other modules.
+   */
+  public void setRewriteEs6Modules(boolean rewriteEs6Modules) {
+    this.rewriteEs6Modules = rewriteEs6Modules;
+  }
+
+  /**
    * Sets a path prefix for CommonJS modules.
    */
   public void setCommonJSModulePathPrefix(String commonJSModulePathPrefix) {
@@ -2196,38 +2253,62 @@ public class CompilerOptions implements Serializable, Cloneable {
     this.instrumentForCoverage = instrumentForCoverage;
   }
 
+  public List<ConformanceConfig> getConformanceConfigs() {
+    return conformanceConfigs;
+  }
+
+  /**
+   * Both enable and configure conformance checks, if non-null.
+   */
+  public void setConformanceConfig(ConformanceConfig conformanceConfig) {
+    this.conformanceConfigs = ImmutableList.of(conformanceConfig);
+  }
+
+  /**
+   * Both enable and configure conformance checks, if non-null.
+   */
+  public void setConformanceConfigs(List<ConformanceConfig> configs) {
+    this.conformanceConfigs = ImmutableList.copyOf(configs);
+  }
+
   //////////////////////////////////////////////////////////////////////////////
   // Enums
 
   /** When to do the extra sanity checks */
   public static enum LanguageMode {
     /**
-     * Traditional JavaScript
+     * 90's JavaScript
      */
     ECMASCRIPT3,
 
     /**
-     * Shiny new JavaScript
+     * Traditional JavaScript
      */
     ECMASCRIPT5,
 
     /**
-     * Nitpicky, shiny new JavaScript
+     * Nitpicky, traditional JavaScript
      */
     ECMASCRIPT5_STRICT,
 
     /**
-     * Experimental JavaScript
+     * Shiny new JavaScript
      */
     ECMASCRIPT6,
 
     /**
-     * Nitpicky, experimental JavaScript
+     * Nitpicky, shiny new JavaScript
      */
-    ECMASCRIPT6_STRICT;
+    ECMASCRIPT6_STRICT,
+
+    /**
+     * For languageOut only. The same language mode as the input.
+     */
+    NO_TRANSPILE;
 
     /** Whether this is a "strict mode" language. */
     public boolean isStrict() {
+      Preconditions.checkState(this != NO_TRANSPILE);
       switch (this) {
         case ECMASCRIPT5_STRICT:
         case ECMASCRIPT6_STRICT:
@@ -2239,6 +2320,7 @@ public class CompilerOptions implements Serializable, Cloneable {
 
     /** Whether this is ECMAScript 6 or higher. */
     public boolean isEs6OrHigher() {
+      Preconditions.checkState(this != NO_TRANSPILE);
       switch (this) {
         case ECMASCRIPT6:
         case ECMASCRIPT6_STRICT:

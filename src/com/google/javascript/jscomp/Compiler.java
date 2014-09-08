@@ -328,6 +328,7 @@ public class Compiler extends AbstractCompiler {
    */
   public void initOptions(CompilerOptions options) {
     this.options = options;
+    this.languageMode = options.getLanguageIn();
     if (errorManager == null) {
       if (outStream == null) {
         setErrorManager(
@@ -404,7 +405,6 @@ public class Compiler extends AbstractCompiler {
       List<T1> externs,
       List<T2> inputs,
       CompilerOptions options) {
-    languageMode = options.getLanguageIn();
     JSModule module = new JSModule(SINGLETON_MODULE_NAME);
     for (SourceFile input : inputs) {
       module.add(input);
@@ -722,7 +722,7 @@ public class Compiler extends AbstractCompiler {
 
   private void compileInternal() {
     setProgress(0.0, null);
-    CompilerOptionsValidator.validate(options);
+    CompilerOptionsPreprocessor.preprocess(options);
     parse();
     // 15 percent of the work is assumed to be for parsing (based on some
     // minimal analysis on big JS projects, of course this depends on options)
@@ -1202,7 +1202,7 @@ public class Compiler extends AbstractCompiler {
   @Override
   public JSTypeRegistry getTypeRegistry() {
     if (typeRegistry == null) {
-      typeRegistry = new JSTypeRegistry(oldErrorReporter, options.looseTypes);
+      typeRegistry = new JSTypeRegistry(oldErrorReporter);
     }
     return typeRegistry;
   }
@@ -1353,9 +1353,7 @@ public class Compiler extends AbstractCompiler {
         externsRoot.addChildToBack(n);
       }
 
-      boolean needsConversion = options.getLanguageIn() != options.getLanguageOut();
-
-      if (needsConversion && options.processCommonJSModules) {
+      if (options.rewriteEs6Modules) {
         processEs6Modules();
       }
 
@@ -1526,7 +1524,11 @@ public class Compiler extends AbstractCompiler {
       if (root == null) {
         continue;
       }
-      new TransformEs6ModuleToCjsModule(this).process(null, root);
+      new ProcessEs6Modules(
+          this,
+          ES6ModuleLoader.createNaiveLoader(this, options.commonJSModulePathPrefix),
+          true)
+      .processFile(root);
     }
   }
 
@@ -1542,7 +1544,6 @@ public class Compiler extends AbstractCompiler {
     // with multiple ways to express dependencies. Directly support JSModules
     // that are equivalent to a single file and which express their deps
     // directly in the source.
-    boolean needsConversion = options.getLanguageIn() != options.getLanguageOut();
     for (CompilerInput input : inputs) {
       input.setCompiler(this);
       Node root = input.getAstRoot(this);
@@ -1556,7 +1557,7 @@ public class Compiler extends AbstractCompiler {
         ProcessCommonJSModules cjs = new ProcessCommonJSModules(
             this,
             ES6ModuleLoader.createNaiveLoader(
-                this, options.commonJSModulePathPrefix), true, !needsConversion);
+                this, options.commonJSModulePathPrefix), true);
         cjs.process(null, root);
         JSModule m = cjs.getModule();
         if (m != null) {
@@ -1565,10 +1566,8 @@ public class Compiler extends AbstractCompiler {
         }
       }
     }
-    // TODO(moz): ProcessCommonJSModules treats each CommonJS/ES6 input as a
-    // separate module, which causes problems with non-CommonJS code. Disable
-    // this part of dependency management until we refactor it.
-    if (options.processCommonJSModules && !needsConversion) {
+
+    if (options.processCommonJSModules) {
       List<JSModule> modules = Lists.newArrayList(modulesByName.values());
       if (!modules.isEmpty()) {
         this.modules = modules;
@@ -2112,11 +2111,15 @@ public class Compiler extends AbstractCompiler {
     switch (options.getLanguageIn()) {
       case ECMASCRIPT5:
       case ECMASCRIPT5_STRICT:
+      case ECMASCRIPT6:
+      case ECMASCRIPT6_STRICT:
         return true;
       case ECMASCRIPT3:
         return false;
+      default:
+        throw new IllegalStateException(
+            "unexpected language mode: " + options.getLanguageIn());
     }
-    throw new IllegalStateException("unexpected language mode");
   }
 
   public LanguageMode languageMode() {
@@ -2166,10 +2169,10 @@ public class Compiler extends AbstractCompiler {
 
   protected Config createConfig(Config.LanguageMode mode) {
     return ParserRunner.createConfig(
-      isIdeMode(),
-      mode,
-      acceptConstKeyword(),
-      options.extraAnnotationNames);
+        isIdeMode(),
+        mode,
+        acceptConstKeyword(),
+        options.extraAnnotationNames);
   }
 
   @Override
@@ -2649,7 +2652,8 @@ public class Compiler extends AbstractCompiler {
   }
 
   @Override
-  Node ensureLibraryInjected(String resourceName) {
+  Node ensureLibraryInjected(String resourceName,
+      boolean normalizeAndUniquifyNames) {
     if (injectedLibraries.containsKey(resourceName)) {
       return null;
     }
@@ -2657,10 +2661,11 @@ public class Compiler extends AbstractCompiler {
     // All libraries depend on js/base.js
     boolean isBase = "base".equals(resourceName);
     if (!isBase) {
-      ensureLibraryInjected("base");
+      ensureLibraryInjected("base", true);
     }
 
-    Node firstChild = loadLibraryCode(resourceName).removeChildren();
+    Node firstChild = loadLibraryCode(resourceName, normalizeAndUniquifyNames)
+        .removeChildren();
     Node lastChild = firstChild.getLastSibling();
 
     Node parent = getNodeForCodeInsertion(null);
@@ -2678,7 +2683,7 @@ public class Compiler extends AbstractCompiler {
 
   /** Load a library as a resource */
   @VisibleForTesting
-  Node loadLibraryCode(String resourceName) {
+  Node loadLibraryCode(String resourceName, boolean normalizeAndUniquifyNames) {
     String originalCode;
     try {
       originalCode = CharStreams.toString(new InputStreamReader(
@@ -2689,9 +2694,13 @@ public class Compiler extends AbstractCompiler {
       throw new RuntimeException(e);
     }
 
-    return Normalize.parseAndNormalizeSyntheticCode(
-        this, originalCode,
-        String.format("jscomp_%s_", resourceName));
+    Node ast = parseSyntheticCode(originalCode);
+    if (normalizeAndUniquifyNames) {
+      Normalize.normalizeSyntheticCode(
+          this, ast,
+          String.format("jscomp_%s_", resourceName));
+    }
+    return ast;
   }
 
   /** Returns the compiler version baked into the jar. */
@@ -2708,11 +2717,19 @@ public class Compiler extends AbstractCompiler {
 
   @Override
   void addComments(String filename, List<Comment> comments) {
+    if (!isIdeMode()) {
+      throw new UnsupportedOperationException(
+          "addComments may only be called in IDE mode.");
+    }
     commentsPerFile.put(filename, comments);
   }
 
   @Override
   public List<Comment> getComments(String filename) {
+    if (!isIdeMode()) {
+      throw new UnsupportedOperationException(
+          "getComments may only be called in IDE mode.");
+    }
     return commentsPerFile.get(filename);
   }
 

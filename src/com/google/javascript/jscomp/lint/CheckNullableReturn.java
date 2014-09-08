@@ -26,7 +26,6 @@ import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.jstype.JSType;
 
-
 /**
  * Checks when a function is annotated as returning {SomeType} (nullable)
  * but actually always returns {!SomeType}, i.e. never returns null.
@@ -92,7 +91,7 @@ public class CheckNullableReturn implements CompilerPass, NodeTraversal.Callback
   /**
    * @return True if the given ControlFlowGraph could return null.
    */
-  private static boolean canReturnNull(ControlFlowGraph graph) {
+  private static boolean canReturnNull(ControlFlowGraph<Node> graph) {
     DiGraph.DiGraphNode<Node, ControlFlowGraph.Branch> ir = graph.getImplicitReturn();
     for (DiGraph.DiGraphEdge<Node, ControlFlowGraph.Branch> inEdge : ir.getInEdges()) {
       DiGraph.DiGraphNode<Node, ControlFlowGraph.Branch> graphNode = inEdge.getSource();

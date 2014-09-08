@@ -107,8 +107,18 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
   }
 
   private void declareLHS(Scope declarationScope, Node lhs) {
-    if (lhs.isName() || lhs.isStringKey() || lhs.isRest()) {
+    if (lhs.isStringKey()) {
+      if (lhs.hasChildren()) {
+        declareLHS(declarationScope, lhs.getFirstChild());
+      } else {
+        declareVar(declarationScope, lhs);
+      }
+    } else if (lhs.isComputedProp()) {
+      declareLHS(declarationScope, lhs.getLastChild());
+    } else if (lhs.isName() || lhs.isRest()) {
       declareVar(declarationScope, lhs);
+    } else if (lhs.isDefaultValue()) {
+      declareLHS(declarationScope, lhs.getFirstChild());
     } else if (lhs.isArrayPattern() || lhs.isObjectPattern()) {
       for (Node child = lhs.getFirstChild(); child != null; child = child.getNext()) {
         if (NodeUtil.isNameDeclaration(lhs.getParent()) && child.getNext() == null) {
@@ -121,7 +131,7 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
         declareLHS(declarationScope, child);
       }
     } else {
-      Preconditions.checkState(lhs.isEmpty());
+      Preconditions.checkState(lhs.isEmpty(), "Invalid left-hand side: %s", lhs);
     }
   }
 
@@ -233,7 +243,8 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
    * @param n The node corresponding to the variable name.
    */
   private void declareVar(Scope s, Node n) {
-    Preconditions.checkState(n.isName() || n.isRest() || n.isStringKey());
+    Preconditions.checkState(n.isName() || n.isRest() || n.isStringKey(),
+        "Invalid node for declareVar: %s", n);
 
     String name = n.getString();
     // Because of how we scan the variables, it is possible to encounter

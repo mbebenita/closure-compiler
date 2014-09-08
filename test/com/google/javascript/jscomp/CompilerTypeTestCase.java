@@ -17,8 +17,11 @@
 
 package com.google.javascript.jscomp;
 
+import com.google.common.base.Joiner;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.testing.BaseJSTypeTestCase;
+
+import java.util.Arrays;
 
 abstract class CompilerTypeTestCase extends BaseJSTypeTestCase {
 
@@ -74,7 +77,12 @@ abstract class CompilerTypeTestCase extends BaseJSTypeTestCase {
       "/** @param {number} sliceArg */\n" +
       "String.prototype.slice = function(sliceArg) {};" +
       "/** @type {number} */ String.prototype.length;" +
-      "/** @constructor \n * @param {*} var_args \n @return {!Array} */" +
+      "/**\n" +
+      " * @template T\n" +
+      " * @constructor\n" +
+      " * @param {*} var_args\n" +
+      " * @return {!Array}\n" +
+      " */\n" +
       "function Array(var_args) {}\n" +
       "/** @type {number} */ Array.prototype.length;\n" +
       "/**\n" +
@@ -111,6 +119,21 @@ abstract class CompilerTypeTestCase extends BaseJSTypeTestCase {
 
   protected CodingConvention getCodingConvention() {
     return new GoogleCodingConvention();
+  }
+
+  protected void checkReportedWarningsHelper(String[] expected) {
+    JSError[] warnings = compiler.getWarnings();
+    for (int i = 0; i < expected.length; i++) {
+      if (expected[i] != null) {
+        assertTrue("expected a warning", warnings.length > 0);
+        assertEquals(expected[i], warnings[0].description);
+        warnings = Arrays.asList(warnings).subList(1, warnings.length).toArray(
+            new JSError[warnings.length - 1]);
+      }
+    }
+    if (warnings.length > 0) {
+      fail("unexpected warnings(s):\n" + Joiner.on("\n").join(warnings));
+    }
   }
 
   @Override

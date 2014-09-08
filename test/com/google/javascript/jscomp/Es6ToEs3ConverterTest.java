@@ -24,24 +24,25 @@ import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
  * @author tbreisacher@google.com (Tyler Breisacher)
  */
 public class Es6ToEs3ConverterTest extends CompilerTestCase {
-
-  private static final String CLOSURE_BASE =
-      "/** @const */ var goog = goog || {};"
-      + "$jscomp$inherits = function(x,y) {};"
-      + "goog.base = function(x,y) {};";
-
-  private static final String EXTERNS_BASE =
-      "/**"
-      + "* @param {...*} var_args"
-      + "* @return {*}"
-      + "*/"
-      + "Function.prototype.apply = function(var_args) {};";
+  private static final String EXTERNS_BASE = Joiner.on('\n').join(
+      "/**",
+      " * @param {...*} var_args",
+      " * @return {*}",
+      " */",
+      "Function.prototype.apply = function(var_args) {};",
+      // Stub out just enough of es6_runtime.js to satisfy the typechecker.
+      // In a real compilation, the entire library will be loaded by
+      // the InjectEs6RuntimeLibrary pass.
+      "$jscomp.copyProperties = function(x,y) {};",
+      "$jscomp.inherits = function(x,y) { x.base = function(a,b) {}; };"
+  );
 
   @Override
   public void setUp() {
     setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
     enableAstValidation(true);
     runTypeCheckAfterProcessing = true;
+    compareJsDoc = true;
   }
 
   @Override
@@ -55,10 +56,9 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
   public CompilerPass getProcessor(final Compiler compiler) {
     PhaseOptimizer optimizer = new PhaseOptimizer(compiler, null, null);
     DefaultPassConfig passConfig = new DefaultPassConfig(getOptions());
-    optimizer.addOneTimePass(passConfig.es6HandleDefaultParams);
+    optimizer.addOneTimePass(passConfig.es6RenameVariablesInParamLists);
     optimizer.addOneTimePass(passConfig.convertEs6ToEs3);
     optimizer.addOneTimePass(passConfig.rewriteLetConst);
-    optimizer.addOneTimePass(passConfig.rewriteGenerators);
     return optimizer;
   }
 
@@ -71,6 +71,14 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
     test("var x = {a, b};", "var x = {a: a, b: b};");
   }
 
+  public void testClassGenerator() {
+    test("class C { *foo() { yield 1; } }", Joiner.on('\n').join(
+        "/** @constructor @struct */",
+        "var C = function() {};",
+        "C.prototype.foo = function*() { yield 1;};"
+    ));
+  }
+
   public void testClassStatement() {
     test("class C { }", Joiner.on('\n').join(
         "/** @constructor @struct */",
@@ -79,6 +87,11 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
     test("class C { constructor() {} }", Joiner.on('\n').join(
         "/** @constructor @struct */",
         "var C = function() {};"
+    ));
+    test("class C { method() {}; }", Joiner.on('\n').join(
+        "/** @constructor @struct */",
+        "var C = function() {};",
+        "C.prototype.method = function() {};"
     ));
     test("class C { constructor(a) { this.a = a; } }", Joiner.on('\n').join(
         "/** @constructor @struct */",
@@ -310,13 +323,14 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
   }
 
   public void testExtends() {
-    test("class D {} class C extends D { }", Joiner.on('\n').join(
+    compareJsDoc = false;
+    test("class D {} class C extends D {}", Joiner.on('\n').join(
         "/** @constructor @struct */",
         "var D = function() {};",
         "/** @constructor @struct @extends {D} */",
-        "var C = function() {};",
-        "$jscomp$inherits(C, D);",
-        "$jscomp$copy$properties(C, D);"
+        "var C = function() { C.base(this, 'constructor'); };",
+        "$jscomp.copyProperties(C, D);",
+        "$jscomp.inherits(C, D);"
     ));
 
     test("class D {} class C extends D { constructor() { super(); } }", Joiner.on('\n').join(
@@ -326,8 +340,8 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "var C = function() {",
         "  C.base(this, 'constructor');",
         "}",
-        "$jscomp$inherits(C, D);",
-        "$jscomp$copy$properties(C, D);"
+        "$jscomp.copyProperties(C, D);",
+        "$jscomp.inherits(C, D);"
     ));
 
     test("class D {} class C extends D { constructor(str) { super(str); } }", Joiner.on('\n').join(
@@ -336,15 +350,15 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "/** @constructor @struct @extends {D} */",
         "var C = function(str) { ",
         "  C.base(this, 'constructor', str); }",
-        "$jscomp$inherits(C, D);",
-        "$jscomp$copy$properties(C, D);"
+        "$jscomp.copyProperties(C, D);",
+        "$jscomp.inherits(C, D);"
     ));
 
     test("class C extends ns.D { }", Joiner.on('\n').join(
         "/** @constructor @struct @extends {ns.D} */",
-        "var C = function() {}",
-        "$jscomp$inherits(C, ns.D);",
-        "$jscomp$copy$properties(C, ns.D);"
+        "var C = function() { C.base(this, 'constructor'); }",
+        "$jscomp.copyProperties(C, ns.D);",
+        "$jscomp.inherits(C, ns.D);"
     ));
 
     test("class C extends foo() {}", null, Es6ToEs3Converter.DYNAMIC_EXTENDS_TYPE);
@@ -367,7 +381,7 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "var D = function() {};",
         "D.prototype.f = function() {};",
         "/** @interface @extends{D} */",
-        "var C = function() {};",
+        "var C = function() { C.base(this, 'constructor'); };",
         "C.prototype.g = function() {};"
     ));
   }
@@ -393,6 +407,8 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
   }
 
   public void testSuperCall() {
+    compareJsDoc = false;
+
     test("class D {} class C extends D { constructor() { super(); } }", Joiner.on('\n').join(
         "/** @constructor @struct */",
         "var D = function() {};",
@@ -400,8 +416,8 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "var C = function() {",
         "  C.base(this, 'constructor');",
         "}",
-        "$jscomp$inherits(C, D);",
-        "$jscomp$copy$properties(C, D);"
+        "$jscomp.copyProperties(C, D);",
+        "$jscomp.inherits(C, D);"
     ));
 
     test("class D {} class C extends D { constructor(str) { super(str); } }", Joiner.on('\n').join(
@@ -411,8 +427,8 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "var C = function(str) {",
         "  C.base(this, 'constructor', str);",
         "}",
-        "$jscomp$inherits(C, D);",
-        "$jscomp$copy$properties(C, D);"
+        "$jscomp.copyProperties(C, D);",
+        "$jscomp.inherits(C, D);"
     ));
 
     test(Joiner.on('\n').join(
@@ -424,9 +440,9 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "/** @constructor @struct */",
         "var D = function() {}",
         "/** @constructor @struct @extends {D} */",
-        "var C = function() {}",
-        "$jscomp$inherits(C, D);",
-        "$jscomp$copy$properties(C, D);",
+        "var C = function() { C.base(this, 'constructor'); }",
+        "$jscomp.copyProperties(C, D);",
+        "$jscomp.inherits(C, D);",
         "C.prototype.foo = function() ",
         "{return C.base(this, 'foo');}"
     ));
@@ -440,9 +456,9 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "/** @constructor @struct */",
         "var D = function() {}",
         "/** @constructor @struct @extends {D} */",
-        "var C = function() {}",
-        "$jscomp$inherits(C, D);",
-        "$jscomp$copy$properties(C, D);",
+        "var C = function() { C.base(this, 'constructor'); }",
+        "$jscomp.copyProperties(C, D);",
+        "$jscomp.inherits(C, D);",
         "C.prototype.foo = function(bar)",
         "{return C.base(this, 'foo', bar);}"
     ));
@@ -465,8 +481,8 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "  var D = function() {",
         "    D.base(this, 'constructor');",
         "  }",
-        "  $jscomp$inherits(D, C);",
-        "  $jscomp$copy$properties(D, C);",
+        "  $jscomp.copyProperties(D, C);",
+        "  $jscomp.inherits(D, C);",
         "};"
     ));
 
@@ -477,9 +493,9 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "/** @constructor @struct */",
         "var D = function() {};",
         "/** @constructor @struct @extends {D} */",
-        "var C = function() {}",
-        "$jscomp$inherits(C, D);",
-        "$jscomp$copy$properties(C, D);",
+        "var C = function() { C.base(this, 'constructor'); }",
+        "$jscomp.copyProperties(C, D);",
+        "$jscomp.inherits(C, D);",
         "C.prototype.f = function() {C.base(this, 'f');}"
     ));
 
@@ -487,9 +503,9 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "/** @constructor @struct */",
         "var D = function(v) {};",
         "/** @constructor @struct @extends{D} */",
-        "var C = function() {};",
-        "$jscomp$inherits(C, D);",
-        "$jscomp$copy$properties(C, D);"
+        "var C = function() { C.base(this, 'constructor'); }",
+        "$jscomp.copyProperties(C, D);",
+        "$jscomp.inherits(C, D);"
     ));
   }
 
@@ -509,63 +525,34 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "};"
     ));
 
+    compareJsDoc = false;
     test("class C { f() { class D extends C {} } }", Joiner.on('\n').join(
         "/** @constructor @struct */",
         "var C = function() {};",
         "C.prototype.f = function() {",
         "  /** @constructor @struct @extends{C} */",
-        "  var D = function() {}",
-        "  $jscomp$inherits(D, C);",
-        "  $jscomp$copy$properties(D, C);",
+        "  var D = function() { D.base(this, 'constructor'); }",
+        "  $jscomp.copyProperties(D, C);",
+        "  $jscomp.inherits(D, C);",
         "};"
     ));
   }
 
   public void testSuperGet() {
-    test("class D {} class C extends D { f() {var i = super.c;} }", Joiner.on('\n').join(
-        "var $jscomp$unique$class$D = function() {};",
-        "/** @constructor @struct */",
-        "var D = $jscomp$unique$class$D;",
-        "/** @constructor @struct @extends {D} */",
-        "function C() {} C.prototype.f = function() {var i = D.prototype.c;};",
-        "$jscomp$inherits(C, D);"
-    ), Es6ToEs3Converter.CANNOT_CONVERT_YET);
+    test("class D {} class C extends D { f() {var i = super.c;} }", null,
+        Es6ToEs3Converter.CANNOT_CONVERT_YET);
 
-    test("class D {} class C extends D { static f() {var i = super.c;} }", Joiner.on('\n').join(
-        "var $jscomp$unique$class$D = function() {};",
-        "/** @constructor @struct */",
-        "var D = $jscomp$unique$class$D;",
-        "/** @constructor @struct @extends {D} */",
-        "function C() {} C.prototype.f = function() {var i = D.c;};",
-        "$jscomp$inherits(C, D);"
-    ), Es6ToEs3Converter.CANNOT_CONVERT_YET);
+    test("class D {} class C extends D { static f() {var i = super.c;} }", null,
+        Es6ToEs3Converter.CANNOT_CONVERT_YET);
 
-    test("class D {} class C extends D { f() {var i; i = super[s];} }", Joiner.on('\n').join(
-        "var $jscomp$unique$class$D = function() {};",
-        "/** @constructor @struct */",
-        "var D = $jscomp$unique$class$D;",
-        "/** @constructor @struct @extends {D} */",
-        "function C() {} C.prototype.f = function() {var i; i = D.prototype[s];};",
-        "$jscomp$inherits(C, D);"
-    ), Es6ToEs3Converter.CANNOT_CONVERT_YET);
+    test("class D {} class C extends D { f() {var i; i = super[s];} }", null,
+        Es6ToEs3Converter.CANNOT_CONVERT_YET);
 
-    test("class D {} class C extends D { f() {return super.s;} }", Joiner.on('\n').join(
-        "var $jscomp$unique$class$D = function() {};",
-        "/** @constructor @struct */",
-        "var D = $jscomp$unique$class$D;",
-        "/** @constructor @struct @extends {D} */",
-        "function C() {} C.prototype.f = function() {return D.s;};",
-        "$jscomp$inherits(C, D);"
-    ), Es6ToEs3Converter.CANNOT_CONVERT_YET);
+    test("class D {} class C extends D { f() {return super.s;} }", null,
+        Es6ToEs3Converter.CANNOT_CONVERT_YET);
 
-    test("class D {} class C extends D { f() {m(super.s);} }", Joiner.on('\n').join(
-        "var $jscomp$unique$class$D = function() {};",
-        "/** @constructor @struct */",
-        "var D = $jscomp$unique$class$D;",
-        "/** @constructor @struct @extends {D} */",
-        "function C() {} C.prototype.f = function() {m(D.s);};",
-        "$jscomp$inherits(C, D);"
-    ), Es6ToEs3Converter.CANNOT_CONVERT_YET);
+    test("class D {} class C extends D { f() {m(super.s);} }", null,
+        Es6ToEs3Converter.CANNOT_CONVERT_YET);
 
     test(Joiner.on('\n').join(
         "class D {}",
@@ -583,38 +570,29 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
   }
 
   public void testSuperNew() {
-    test("class D {} class C extends D { f() {var s = new super;} }", Joiner.on('\n').join(
-        "/** @constructor @struct */",
-        "var D = function() {};",
-        "/** @constructor @struct @extends {D} */",
-        "function C() {} C.prototype.f = function() {var s = new D};",
-        "$jscomp$inherits(C, D);"
-    ), Es6ToEs3Converter.CANNOT_CONVERT_YET);
+    test("class D {} class C extends D { f() {var s = new super;} }", null,
+        Es6ToEs3Converter.CANNOT_CONVERT_YET);
 
-    test("class D {} class C extends D { f(str) {var s = new super(str);} }", Joiner.on('\n').join(
-        "var $jscomp$unique$class$D = function() {};",
-        "/** @constructor @struct */",
-        "var D = $jscomp$unique$class$D;",
-        "/** @constructor @struct @extends {D} */",
-        "function C() {} C.prototype.f = function(str) {var s = new D(str);};",
-        "$jscomp$inherits(C, D);"
-    ), Es6ToEs3Converter.CANNOT_CONVERT_YET);
+    test("class D {} class C extends D { f(str) {var s = new super(str);} }", null,
+        Es6ToEs3Converter.CANNOT_CONVERT_YET);
   }
 
   public void testSuperCallNonConstructor() {
+    compareJsDoc = false;
+
     test("class S extends B { static f() { super(); } }", Joiner.on('\n').join(
         "/** @constructor @struct @extends {B} */",
-        "var S = function() {};",
-        "$jscomp$inherits(S, B);",
-        "$jscomp$copy$properties(S, B);",
+        "var S = function() {S.base(this, 'constructor')};",
+        "$jscomp.copyProperties(S, B);",
+        "$jscomp.inherits(S, B);",
         "/** @this {?} */",
         "S.f=function() { B.f.call(this) }"));
 
     test("class S extends B { f() { super(); } }", Joiner.on('\n').join(
         "/** @constructor @struct @extends {B} */",
-        "var S = function() {};",
-        "$jscomp$inherits(S, B);",
-        "$jscomp$copy$properties(S, B);",
+        "var S = function() {S.base(this, 'constructor')};",
+        "$jscomp.copyProperties(S, B);",
+        "$jscomp.inherits(S, B);",
         "S.prototype.f=function() { S.base(this, \"f\") }"));
   }
 
@@ -667,60 +645,56 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
   }
 
   public void testStaticInheritance() {
+    compareJsDoc = false;
+
     test(Joiner.on('\n').join(
-        CLOSURE_BASE,
         "class D {",
         "  static f() {}",
         "}",
         "class C extends D {}",
         "C.f();"
     ), Joiner.on('\n').join(
-        CLOSURE_BASE,
         "/** @constructor @struct */",
         "var D = function() {};",
         "D.f = function () {};",
         "/** @constructor @struct @extends{D} */",
-        "var C = function() {};",
-        "$jscomp$inherits(C, D);",
-        "$jscomp$copy$properties(C, D);",
+        "var C = function() { C.base(this, 'constructor'); };",
+        "$jscomp.copyProperties(C, D);",
+        "$jscomp.inherits(C, D);",
         "C.f();"
     ));
 
     test(Joiner.on('\n').join(
-        CLOSURE_BASE,
         "class D {",
         "  static f() {}",
         "}",
         "class C extends D { f() {} }",
         "C.f();"
     ), Joiner.on('\n').join(
-        CLOSURE_BASE,
         "/** @constructor @struct */",
         "var D = function() {};",
         "D.f = function() {};",
         "/** @constructor @struct @extends{D} */",
-        "var C = function() {};",
-        "$jscomp$inherits(C, D);",
-        "$jscomp$copy$properties(C, D);",
+        "var C = function() { C.base(this, 'constructor'); };",
+        "$jscomp.copyProperties(C, D);",
+        "$jscomp.inherits(C, D);",
         "C.prototype.f = function() {};",
         "C.f();"
     ));
 
     test(Joiner.on('\n').join(
-        CLOSURE_BASE,
         "class D {",
         "  static f() {}",
         "}",
         "class C extends D { static f() {} g() {} }"
     ), Joiner.on('\n').join(
-        CLOSURE_BASE,
         "/** @constructor @struct */",
         "var D = function() {};",
         "D.f = function() {};",
         "/** @constructor @struct @extends{D} */",
-        "var C = function() {};",
-        "$jscomp$inherits(C, D);",
-        "$jscomp$copy$properties(C, D);",
+        "var C = function() { C.base(this, 'constructor'); };",
+        "$jscomp.copyProperties(C, D);",
+        "$jscomp.inherits(C, D);",
         "C.f = function() {};",
         "C.prototype.g = function() {};"
     ));
@@ -767,27 +741,26 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
 
   public void testInvalidClassUse() {
     enableTypeCheck(CheckLevel.WARNING);
-    test(Joiner.on('\n').join(
-        CLOSURE_BASE,
+    compareJsDoc = false;
+
+    test(EXTERNS_BASE, Joiner.on('\n').join(
         "/** @constructor @struct */",
         "function Foo() {}",
         "Foo.prototype.f = function() {};",
         "class Sub extends Foo {}",
         "(new Sub).f();"
     ), Joiner.on('\n').join(
-        CLOSURE_BASE,
         "/** @constructor @struct */",
         "function Foo() {}",
         "Foo.prototype.f = function() {};",
         "/** @constructor @struct @extends {Foo} */",
-        "var Sub = function() {};",
-        "$jscomp$inherits(Sub, Foo);",
-        "$jscomp$copy$properties(Sub, Foo);",
+        "var Sub = function() { Sub.base(this, 'constructor'); };",
+        "$jscomp.copyProperties(Sub, Foo);",
+        "$jscomp.inherits(Sub, Foo);",
         "(new Sub).f();"
-    ));
+    ), null, null);
 
-    test(Joiner.on('\n').join(
-        CLOSURE_BASE,
+    test(EXTERNS_BASE, Joiner.on('\n').join(
         "/** @constructor @struct */",
         "function Foo() {}",
         "Foo.f = function() {};",
@@ -795,8 +768,7 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "Sub.f();"
     ), null, null, TypeCheck.INEXISTENT_PROPERTY);
 
-    test(Joiner.on('\n').join(
-        CLOSURE_BASE,
+    test(EXTERNS_BASE, Joiner.on('\n').join(
         "/** @constructor */",
         "function Foo() {}",
         "Foo.f = function() {};",
@@ -806,8 +778,10 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
 
   public void testClassGetterSetter() {
     test("class C { get value() {} }", null, Es6ToEs3Converter.CANNOT_CONVERT);
-
     test("class C { set value(v) {} }", null, Es6ToEs3Converter.CANNOT_CONVERT);
+
+    test("class C { get [foo]() {}}", null, Es6ToEs3Converter.CANNOT_CONVERT);
+    test("class C { set [foo](val) {}}", null, Es6ToEs3Converter.CANNOT_CONVERT);
   }
 
   public void testArrowFunction() {
@@ -846,6 +820,14 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "  $jscomp$this.doThings();",
         "  $jscomp$this.done();",
         "};"));
+
+    test("switch(a) { case b: (() => { this; })(); }", Joiner.on('\n').join(
+        "switch(a) {",
+        "  case b:",
+        "    var $jscomp$this = this;",
+        "    (function() { $jscomp$this; })();",
+        "}"
+     ));
   }
 
   public void testMultipleArrowsInSameScope() {
@@ -1028,13 +1010,15 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
   }
 
   public void testForOf() {
+    compareJsDoc = false;
+
     // With array literal and declaring new bound variable.
     test(Joiner.on('\n').join(
       "for (var i of [1,2,3]) {",
       "  console.log(i);",
       "}"
     ), Joiner.on('\n').join(
-        "for (var $jscomp$iter$0 = $jscomp$make$iterator([1,2,3]),",
+        "for (var $jscomp$iter$0 = $jscomp.makeIterator([1,2,3]),",
         "    $jscomp$key$i = $jscomp$iter$0.next();",
         "    !$jscomp$key$i.done; $jscomp$key$i = $jscomp$iter$0.next()) {",
         "  var i = $jscomp$key$i.value;",
@@ -1048,7 +1032,7 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
       "  console.log(i);",
       "}"
     ), Joiner.on('\n').join(
-        "for (var $jscomp$iter$0 = $jscomp$make$iterator([1,2,3]),",
+        "for (var $jscomp$iter$0 = $jscomp.makeIterator([1,2,3]),",
         "    $jscomp$key$i = $jscomp$iter$0.next();",
         "    !$jscomp$key$i.done; $jscomp$key$i = $jscomp$iter$0.next()) {",
         "  var i = $jscomp$key$i.value;",
@@ -1062,7 +1046,7 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
       "  console.log(i);",
       "}"
     ), Joiner.on('\n').join(
-        "for (var $jscomp$iter$0 = $jscomp$make$iterator(arr),",
+        "for (var $jscomp$iter$0 = $jscomp.makeIterator(arr),",
         "    $jscomp$key$i = $jscomp$iter$0.next();",
         "    !$jscomp$key$i.done; $jscomp$key$i = $jscomp$iter$0.next()) {",
         "  var i = $jscomp$key$i.value;",
@@ -1075,19 +1059,13 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
       "for (var i of [1,2,3])",
       "  console.log(i);"
     ), Joiner.on('\n').join(
-        "for (var $jscomp$iter$0 = $jscomp$make$iterator([1,2,3]),",
+        "for (var $jscomp$iter$0 = $jscomp.makeIterator([1,2,3]),",
         "    $jscomp$key$i = $jscomp$iter$0.next();",
         "    !$jscomp$key$i.done; $jscomp$key$i = $jscomp$iter$0.next()) {",
         "  var i = $jscomp$key$i.value;",
         "  console.log(i);",
         "}"
     ));
-  }
-
-  public void testArrayComprehension() {
-    enableAstValidation(false);
-
-    test("[for (x of y) z() ]", null, Es6ToEs3Converter.CANNOT_CONVERT_YET);
   }
 
   public void testSpreadArray() {
@@ -1171,6 +1149,11 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "var $jscomp$spread$args0;",
         "($jscomp$spread$args0 = Factory.create()).m.apply($jscomp$spread$args0, [].concat(arr));"
     ), null, null);
+  }
+
+  public void testArrowFunctionInObject() {
+    test("var obj = { f: () => 'bar' };",
+        "var obj = { f: function() { return 'bar'; } };");
   }
 
   public void testMethodInObject() {
@@ -1279,6 +1262,17 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "var $jscomp$compprop0 = {};",
         "  ($jscomp$compprop0['f' + 1] = 1, ($jscomp$compprop0.a = a, $jscomp$compprop0))"
     ));
+
+    test("var obj = { [foo]() {}}", Joiner.on('\n').join(
+        "var $jscomp$compprop0 = {};",
+        "var obj = ($jscomp$compprop0[foo] = function(){}, $jscomp$compprop0)"
+    ));
+
+    test("var obj = { *[foo]() {}}", Joiner.on('\n').join(
+        "var $jscomp$compprop0 = {};",
+        "var obj = (",
+        "  $jscomp$compprop0[foo] = function*(){},",
+        "  $jscomp$compprop0)"));
   }
 
   public void testComputedPropGetterSetter() {
@@ -1297,6 +1291,48 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
     ));
   }
 
+  public void testComputedPropClass() {
+    test("class C { [foo]() { alert(1); } }", Joiner.on('\n').join(
+        "/** @constructor @struct */",
+        "var C = function() {};",
+        "C.prototype[foo] = function() { alert(1); };"
+    ));
+
+    test("class C { static [foo]() { alert(2); } }", Joiner.on('\n').join(
+        "/** @constructor @struct */",
+        "var C = function() {};",
+        "C[foo] = function() { alert(2); };"
+    ));
+  }
+
+  public void testComputedPropGeneratorMethods() {
+    test("class C { *[foo]() { yield 1; } }", Joiner.on('\n').join(
+        "/** @constructor @struct */",
+        "var C = function() {};",
+        "C.prototype[foo] = function*() { yield 1; };"
+    ));
+
+    test("class C { static *[foo]() { yield 2; } }", Joiner.on('\n').join(
+        "/** @constructor @struct */",
+        "var C = function() {};",
+        "C[foo] = function*() { yield 2; };"
+    ));
+  }
+
+  public void testBlockScopedGeneratorFunction() {
+    // Functions defined in a block get translated to a var
+    test("{ function *f() {yield 1;} }", Joiner.on('\n').join(
+        "{",
+        "  var f = function*() { yield 1; };",
+        "}"
+    ));
+  }
+
+  public void testComputedPropCannotConvert() {
+    test("var o = { get [foo]() {}}", null, Es6ToEs3Converter.CANNOT_CONVERT_YET);
+    test("var o = { set [foo](val) {}}", null, Es6ToEs3Converter.CANNOT_CONVERT_YET);
+  }
+
   public void testNoComputedProperties() {
     testSame("({'a' : 1})");
     testSame("({'a' : 1, f : 1, b : 1})");
@@ -1309,6 +1345,16 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
             "var $jscomp$destructuring$var0 = z();",
             "var x = $jscomp$destructuring$var0[0];",
             "var y = $jscomp$destructuring$var0[1];"));
+
+    test(
+        "var x,y;\n"
+        + "[x,y] = z();",
+        Joiner.on('\n').join(
+            "var x,y;",
+            "var $jscomp$destructuring$var0 = z();",
+            "x = $jscomp$destructuring$var0[0];",
+            "y = $jscomp$destructuring$var0[1];"));
+
     test(
         "var [a,b] = c();"
         + "var [x,y] = z();",
@@ -1321,6 +1367,37 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
             "var y = $jscomp$destructuring$var1[1];"));
   }
 
+  public void testArrayDestructuringDefaultValues() {
+    test("var a; [a=1] = b();", Joiner.on('\n').join(
+        "var a;",
+        "var $jscomp$destructuring$var0 = b()",
+        "a = ($jscomp$destructuring$var0[0] === undefined) ?",
+        "    1 :",
+        "    $jscomp$destructuring$var0[0];"));
+
+    test("var [a=1] = b();", Joiner.on('\n').join(
+        "var $jscomp$destructuring$var0 = b()",
+        "var a = ($jscomp$destructuring$var0[0] === undefined) ?",
+        "    1 :",
+        "    $jscomp$destructuring$var0[0];"));
+
+    test("var [a, b=1, c] = d();", Joiner.on('\n').join(
+        "var $jscomp$destructuring$var0=d();",
+        "var a = $jscomp$destructuring$var0[0];",
+        "var b = ($jscomp$destructuring$var0[1] === undefined) ?",
+        "    1 :",
+        "    $jscomp$destructuring$var0[1];",
+        "var c=$jscomp$destructuring$var0[2]"));
+
+    test("var a; [[a] = ['b']] = [];", Joiner.on('\n').join(
+        "var a;",
+        "var $jscomp$destructuring$var0 = [];",
+        "var $jscomp$destructuring$var1 = ($jscomp$destructuring$var0[0] === undefined)",
+        "    ? ['b']",
+        "    : $jscomp$destructuring$var0[0];",
+        "a = $jscomp$destructuring$var1[0]"));
+  }
+
   public void testArrayDestructuringParam() {
     test("function f([x,y]) { use(x); use(y); }", null,
         Es6ToEs3Converter.CANNOT_CONVERT_YET);
@@ -1331,15 +1408,125 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         Es6ToEs3Converter.CANNOT_CONVERT_YET);
   }
 
+  public void testObjectDestructuring() {
+    test("var {a: b, c: d} = foo();", Joiner.on('\n').join(
+        "var $jscomp$destructuring$var0 = foo();",
+        "var b = $jscomp$destructuring$var0.a;",
+        "var d = $jscomp$destructuring$var0.c;"));
+
+    test("var {a,b} = foo();", Joiner.on('\n').join(
+        "var $jscomp$destructuring$var0 = foo();",
+        "var a = $jscomp$destructuring$var0.a;",
+        "var b = $jscomp$destructuring$var0.b;"));
+
+    test("var x; ({a: x}) = foo();", Joiner.on('\n').join(
+        "var x;",
+        "var $jscomp$destructuring$var0 = foo();",
+        "x = $jscomp$destructuring$var0.a;"));
+  }
+
+  public void testObjectDestructuringWithInitializer() {
+    test("var {a : b = 'default'} = foo();", Joiner.on('\n').join(
+        "var $jscomp$destructuring$var0 = foo();",
+        "var b = ($jscomp$destructuring$var0.a === undefined) ?",
+        "    'default' :",
+        "    $jscomp$destructuring$var0.a"));
+
+    test("var {a = 'default'} = foo();", Joiner.on('\n').join(
+        "var $jscomp$destructuring$var0 = foo();",
+        "var a = ($jscomp$destructuring$var0.a === undefined) ?",
+        "    'default' :",
+        "    $jscomp$destructuring$var0.a"));
+  }
+
+  public void testObjectDestructuringNested() {
+    test("var {a: {b}} = foo();", Joiner.on('\n').join(
+        "var $jscomp$destructuring$var0 = foo();",
+        "var $jscomp$destructuring$var1 = $jscomp$destructuring$var0.a;",
+        "var b = $jscomp$destructuring$var1.b"));
+  }
+
+  public void testObjectDestructuringComputedProps() {
+    test("var {[a]: b} = foo();", Joiner.on('\n').join(
+        "var $jscomp$destructuring$var0 = foo();",
+        "var b = $jscomp$destructuring$var0[a];"));
+
+    test("({[a]: b}) = foo();", Joiner.on('\n').join(
+        "var $jscomp$destructuring$var0 = foo();",
+        "b = $jscomp$destructuring$var0[a];"));
+
+    test("function f({['KEY']: x}) {}", Joiner.on('\n').join(
+        "function f($jscomp$destructuring$var0) {",
+        "  var x = $jscomp$destructuring$var0['KEY']",
+        "}"));
+  }
+
+  public void testObjectDestructuringNotYetImplemented() {
+    test("var {5: b} = foo();", null, Es6ToEs3Converter.CANNOT_CONVERT_YET);
+    test("var {'str': b} = foo();", null, Es6ToEs3Converter.CANNOT_CONVERT_YET);
+
+    test("function f({key: x = 5}) {}", null, Es6ToEs3Converter.CANNOT_CONVERT_YET);
+  }
+
+  public void testObjectDestructuringFunction() {
+    test("function f({a: b}) {}", Joiner.on('\n').join(
+        "function f($jscomp$destructuring$var0) {",
+        "  var b = $jscomp$destructuring$var0.a",
+        "}"));
+
+    test("function f({a}) {}", Joiner.on('\n').join(
+        "function f($jscomp$destructuring$var0) {",
+        "  var a = $jscomp$destructuring$var0.a",
+        "}"));
+
+    test("function f({k: {subkey : a}}) {}", Joiner.on('\n').join(
+        "function f($jscomp$destructuring$var0) {",
+        "  var $jscomp$destructuring$var1 = $jscomp$destructuring$var0.k;",
+        "  var a = $jscomp$destructuring$var1.subkey;",
+        "}"));
+
+    test("function f({k: [x, y, z]}) {}", Joiner.on('\n').join(
+        "function f($jscomp$destructuring$var0) {",
+        "  var $jscomp$destructuring$var1 = $jscomp$destructuring$var0.k;",
+        "  var x = $jscomp$destructuring$var1[0];",
+        "  var y = $jscomp$destructuring$var1[1];",
+        "  var z = $jscomp$destructuring$var1[2];",
+        "}"));
+  }
+
+  public void testMixedDestructuring() {
+    test("var [a,{b,c}] = foo();", Joiner.on('\n').join(
+        "var $jscomp$destructuring$var0 = foo();",
+        "var a = $jscomp$destructuring$var0[0];",
+        "var $jscomp$destructuring$var1 = $jscomp$destructuring$var0[1];",
+        "var b=$jscomp$destructuring$var1.b;",
+        "var c=$jscomp$destructuring$var1.c"));
+
+    test("var {a,b:[c,d]} = foo();", Joiner.on('\n').join(
+        "var $jscomp$destructuring$var0 = foo();",
+        "var a = $jscomp$destructuring$var0.a;",
+        "var $jscomp$destructuring$var1 = $jscomp$destructuring$var0.b;",
+        "var c = $jscomp$destructuring$var1[0];",
+        "var d = $jscomp$destructuring$var1[1]"));
+  }
+
   public void testUntaggedTemplateLiteral() {
     test("``", "''");
     test("`\"`", "'\\\"'");
     test("`'`", "\"'\"");
+    test("`\\``", "'`'");
+    test("`\\\"`", "'\\\"'");
+    test("`\\\\\"`", "'\\\\\\\"'");
+    test("`\"\\\\`", "'\"\\\\'");
+    test("`$$`", "'$$'");
+    test("`$$$`", "'$$$'");
+    test("`\\$$$`", "'$$$'");
     test("`hello`", "'hello'");
     test("`hello\nworld`", "'hello\\nworld'");
     test("`hello\rworld`", "'hello\\nworld'");
     test("`hello\r\nworld`", "'hello\\nworld'");
     test("`hello\n\nworld`", "'hello\\n\\nworld'");
+    test("`hello\\r\\nworld`", "'hello\\r\\nworld'");
     test("`${world}`", "'' + world");
     test("`hello ${world}`", "'hello ' + world");
     test("`${hello} world`", "hello + ' world'");
@@ -1381,593 +1568,17 @@ public class Es6ToEs3ConverterTest extends CompilerTestCase {
         "$jscomp$templatelit$0['raw'] = ['a\\tb'];",
         "tag($jscomp$templatelit$0);"
     ));
-  }
 
-  public void testSimpleGenerator() {
-    // TODO(mattloring): expand these tests once a translation strategy is decided upon.
-    test("function *f() {}", Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
+    test("tag()`${hello} world`", Joiner.on('\n').join(
+        "var $jscomp$templatelit$0 = ['', ' world'];",
+        "$jscomp$templatelit$0['raw'] = ['', ' world'];",
+        "tag()($jscomp$templatelit$0, hello);"
     ));
 
-    test("function *f() {yield 1;}", Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          $jscomp$generator$state = 1;",
-        "          return {value: 1, done: false};",
-        "        case 1:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-
-    test("/** @param {*} a */ function *f(a,b) {}", Joiner.on('\n').join(
-        "/** @param {*} a @suppress {uselessCode} */",
-        "function f(a,b) {",
-        "  var $jscomp$generator$state = 0;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-
-    test("function *f(a,b) {var i = 0, j = 2;}", Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f(a,b) {",
-        "  var $jscomp$generator$state = 0;",
-        "  var j;",
-        "  var i;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          i = 0;",
-        "          j = 2;",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-
-    test("function *f() { var i = 0; yield i; i = 1; yield i; i = i + 1; yield i;}",
-      Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  var i;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          i = 0;",
-        "          $jscomp$generator$state = 1;",
-        "          return {value: i, done: false};",
-        "        case 1:",
-        "          i = 1;",
-        "          $jscomp$generator$state = 2;",
-        "          return {value: i, done: false};",
-        "        case 2:",
-        "          i = i + 1;",
-        "          $jscomp$generator$state = 3;",
-        "          return {value: i, done: false};",
-        "        case 3:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-  }
-
-  public void testForLoopsGenerator() {
-    test("function *f() {var i = 0; for (var j = 0; j < 10; j++) { i += j; } yield i;}",
-      Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  var i;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          i = 0;",
-        "          for (var j = 0; j < 10; j++) { i += j; }",
-        "          $jscomp$generator$state = 1;",
-        "          return {value: i, done: false};",
-        "        case 1:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-
-    test("function *f() { for (var j = 0; j < 10; j++) { yield j; } }",
-      Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  var j;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          j = 0;",
-        "        case 1:",
-        "          if (!(j < 10)) { $jscomp$generator$state = 2; break; }",
-        "          $jscomp$generator$state = 3;",
-        "          return {value: j, done: false};",
-        "        case 3:",
-        "          j++",
-        "          $jscomp$generator$state = 1;",
-        "          break",
-        "        case 2:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-  }
-
-  public void testWhileLoopsGenerator() {
-    test("function *f() {var i = 0; while (i < 10) { i++; i++; i++; } yield i;}",
-      Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  var i;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          i = 0;",
-        "          while (i < 10) { i ++; i++; i++; }",
-        "          $jscomp$generator$state = 1;",
-        "          return {value: i, done: false};",
-        "        case 1:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-
-    test("function *f() { var j = 0; while (j < 10) { yield j; j++; } }",
-      Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  var j;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          j = 0;",
-        "        case 1:",
-        "          if (!(j < 10)) { $jscomp$generator$state = 2; break; }",
-        "          $jscomp$generator$state = 3;",
-        "          return {value: j, done: false};",
-        "        case 3:",
-        "          j++",
-        "          $jscomp$generator$state = 1;",
-        "          break",
-        "        case 2:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-  }
-
-  public void testGeneratorCannotConvertYet() {
-    test(Joiner.on('\n').join(
-        "function *f() {",
-        "  var i = 0; for (var j = 0; j < 10; j++) { i += j; throw 5; } yield i;",
-        "}"
-    ), Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  var i;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          i = 0;",
-        "          for (var j = 0; j < 10; j++) { i += j; throw 5; }",
-        "          $jscomp$generator$state = 1;",
-        "          return {value: i, done: false};",
-        "        case 1:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-
-    test("function *f() { label: while (i) { yield i; } }",
-      null, Es6ToEs3Converter.CANNOT_CONVERT_YET);
-
-    test("function *f() {var i = 0; for (var j = 0; j < 10; j++) { i += j; throw 5; yield i;}}",
-      null, Es6ToEs3Converter.CANNOT_CONVERT_YET);
-  }
-
-  public void testIfGenerator() {
-    test("function *f() { var j = 0; if (j < 1) { yield j; } }",
-      Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  var j;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          j = 0;",
-        "          if (!(j < 1)) { $jscomp$generator$state = 1; break; }",
-        "          $jscomp$generator$state = 2;",
-        "          return {value: j, done: false};",
-        "        case 2:",
-        "        case 1:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-
-    test("function *f(i) { if (i < 1) { yield i; } else { yield 1; } }",
-      Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f(i) {",
-        "  var $jscomp$generator$state = 0;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          if (!(i < 1)) { $jscomp$generator$state = 1; break; }",
-        "          $jscomp$generator$state = 3;",
-        "          return {value: i, done: false};",
-        "        case 3:",
-        "          $jscomp$generator$state = 2;",
-        "          break;",
-        "        case 1:",
-        "          $jscomp$generator$state = 4;",
-        "          return {value: 1, done: false};",
-        "        case 4:",
-        "        case 2:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-  }
-
-  public void testGeneratorReturn() {
-    test("function *f() { return 1; }",
-      Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          $jscomp$generator$state = -1;",
-        "          return {value: 1, done: true};",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-  }
-
-  public void testGeneratorBreakContinue() {
-    test("function *f() { var j = 0; while (j < 10) { yield j; break; } }",
-      Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  var j;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          j = 0;",
-        "        case 1:",
-        "          if (!(j < 10)) { $jscomp$generator$state = 2; break; }",
-        "          $jscomp$generator$state = 3;",
-        "          return {value: j, done: false};",
-        "        case 3:",
-        "          $jscomp$generator$state = 2;",
-        "          break;",
-        "          $jscomp$generator$state = 1;",
-        "          break",
-        "        case 2:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-
-    test("function *f() { var j = 0; while (j < 10) { yield j; continue; } }",
-      Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  var j;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          j = 0;",
-        "        case 1:",
-        "          if (!(j < 10)) { $jscomp$generator$state = 2; break; }",
-        "          $jscomp$generator$state = 3;",
-        "          return {value: j, done: false};",
-        "        case 3:",
-        "          $jscomp$generator$state = 1;",
-        "          break;",
-        "          $jscomp$generator$state = 1;",
-        "          break",
-        "        case 2:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-  }
-
-  public void testDoWhileLoopsGenerator() {
-    test("function *f() { do { yield j; } while (j < 10); }",
-      Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  var $jscomp$generator$first$do;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          $jscomp$generator$first$do = true;",
-        "        case 1:",
-        "          if (!($jscomp$generator$first$do || j < 10)) {",
-        "            $jscomp$generator$state = 2; break; }",
-        "          $jscomp$generator$state = 3;",
-        "          return {value: j, done: false};",
-        "        case 3:",
-        "          $jscomp$generator$first$do = false;",
-        "          $jscomp$generator$state = 1;",
-        "          break",
-        "        case 2:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-  }
-
-  public void testYieldNoValue() {
-    test("function *f() { yield; }",
-      Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          $jscomp$generator$state = 1;",
-        "          return {value: undefined, done: false};",
-        "        case 1:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-  }
-
-  public void testYieldExpression() {
-    test("function *f() { return (yield 1); }",
-      Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  var $jscomp$generator$expression$0;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          $jscomp$generator$expression$0 = 1;",
-        "          $jscomp$generator$state = 1;",
-        "          return {value: $jscomp$generator$expression$0, done: false};",
-        "        case 1:",
-        "          $jscomp$generator$state = -1;",
-        "          return {value: $jscomp$generator$expression$0, done: true};",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-  }
-
-  public void testYieldAll() {
-    test("function *f() {yield * n;}", Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  var $jscomp$generator$yield$entry;",
-        "  var $jscomp$generator$yield$all;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          $jscomp$generator$yield$all = n;",
-        "        case 1:",
-        "          if (!!($jscomp$generator$yield$entry =",
-        "              $jscomp$generator$yield$all.next()).done) {",
-        "            $jscomp$generator$state = 2;",
-        "            break;",
-        "          }",
-        "          $jscomp$generator$state = 3;",
-        "          return {value: $jscomp$generator$yield$entry.value, done: false};",
-        "        case 3:",
-        "          $jscomp$generator$state = 1;",
-        "          break;",
-        "        case 2:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-
-    test("function *f() {var i = yield * n;}", Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  var i;",
-        "  var $jscomp$generator$yield$entry;",
-        "  var $jscomp$generator$yield$all;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          $jscomp$generator$yield$all = n;",
-        "        case 1:",
-        "          if (!!($jscomp$generator$yield$entry =",
-        "              $jscomp$generator$yield$all.next()).done) {",
-        "            $jscomp$generator$state = 2;",
-        "            break;",
-        "          }",
-        "          $jscomp$generator$state = 3;",
-        "          return {value: $jscomp$generator$yield$entry.value, done: false};",
-        "        case 3:",
-        "          $jscomp$generator$state = 1;",
-        "          break;",
-        "        case 2:",
-        "          i = $jscomp$generator$yield$entry.value;",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
-    ));
-  }
-
-  public void testYieldArguments() {
-    test("function *f() {yield arguments[0];}", Joiner.on('\n').join(
-        "/** @suppress {uselessCode} */",
-        "function f() {",
-        "  var $jscomp$generator$state = 0;",
-        "  var $jscomp$generator$arguments = arguments;",
-        "  return {",
-        "    $$iterator: function() { return this; },",
-        "    next: function() {",
-        "      while (1) switch ($jscomp$generator$state) {",
-        "        case 0:",
-        "          $jscomp$generator$state = 1;",
-        "          return {value: $jscomp$generator$arguments[0], done: false};",
-        "        case 1:",
-        "          $jscomp$generator$state = -1;",
-        "        default:",
-        "          return {value: undefined, done: true}",
-        "      }",
-        "    }",
-        "  }",
-        "}"
+    test("a.b`${hello} world`", Joiner.on('\n').join(
+        "var $jscomp$templatelit$0 = ['', ' world'];",
+        "$jscomp$templatelit$0['raw'] = ['', ' world'];",
+        "a.b($jscomp$templatelit$0, hello);"
     ));
   }
 

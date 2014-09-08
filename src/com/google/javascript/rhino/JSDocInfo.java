@@ -42,6 +42,7 @@ package com.google.javascript.rhino;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -113,6 +114,7 @@ public class JSDocInfo implements Serializable {
     List<JSTypeExpression> thrownTypes = null;
     List<String> templateTypeNames = null;
     Set<String> disposedParameters = null;
+    Map<String, Node> typeTransformations = null;
 
     // Other information
     String description = null;
@@ -330,6 +332,11 @@ public class JSDocInfo implements Serializable {
    * The type for {@link #getThisType()}.
    */
   private JSTypeExpression thisType = null;
+
+  /**
+   * Whether the type annotation was inlined.
+   */
+  private boolean inlineType = false;
 
   /**
    * Whether to include documentation.
@@ -1101,6 +1108,9 @@ public class JSDocInfo implements Serializable {
   boolean declareTemplateTypeName(String newTemplateTypeName) {
     lazyInitInfo();
 
+    if (isTypeTransformationName(newTemplateTypeName)) {
+      return false;
+    }
     if (info.templateTypeNames == null){
       info.templateTypeNames = new ArrayList<String>();
     } else if (info.templateTypeNames.contains(newTemplateTypeName)) {
@@ -1108,6 +1118,45 @@ public class JSDocInfo implements Serializable {
     }
 
     info.templateTypeNames.add(newTemplateTypeName);
+    return true;
+  }
+
+  private boolean isTemplateTypeName(String name) {
+    if (info.templateTypeNames == null) {
+      return false;
+    }
+    return info.templateTypeNames.contains(name);
+  }
+
+  private boolean isTypeTransformationName(String name) {
+    if (info.typeTransformations == null) {
+      return false;
+    }
+    return info.typeTransformations.containsKey(name);
+  }
+
+  /**
+   * Declares a type transformation expression. These expressions are described
+   * using a {@code @template} annotation of the form
+   * {@code @template T := TTL-Expr =:}
+   *
+   * @param newName The name associated to the type transformation.
+   * @param expr The type transformation expression.
+   */
+  boolean declareTypeTransformation(String newName, Node expr) {
+    lazyInitInfo();
+
+    if (isTemplateTypeName(newName)) {
+      return false;
+    }
+    if (info.typeTransformations == null){
+      // A LinkedHashMap is used to keep the insertion order. The type
+      // transformation expressions will be evaluated in this order.
+      info.typeTransformations = new LinkedHashMap<String, Node>();
+    } else if (info.typeTransformations.containsKey(newName)) {
+      return false;
+    }
+    info.typeTransformations.put(newName, expr);
     return true;
   }
 
@@ -1171,7 +1220,8 @@ public class JSDocInfo implements Serializable {
 
   /**
    * Returns the set of names of the defined parameters. The iteration order
-   * of the returned set is not the order in which parameters are defined.
+   * of the returned set is the order in which parameters are defined in the
+   * JSDoc, rather than the order in which the function declares them.
    *
    * @return the set of names of the defined parameters. The returned set is
    *     immutable.
@@ -1195,6 +1245,10 @@ public class JSDocInfo implements Serializable {
 
   void setType(JSTypeExpression type) {
     setType(type, TYPEFIELD_TYPE);
+  }
+
+  void setInlineType() {
+    this.inlineType = true;
   }
 
   void setReturnType(JSTypeExpression type) {
@@ -1270,6 +1324,13 @@ public class JSDocInfo implements Serializable {
    */
   public JSTypeExpression getType() {
     return getType(TYPEFIELD_TYPE);
+  }
+
+  /**
+   * Returns whether the type annotation was inlined.
+   */
+  public boolean isInlineType() {
+    return inlineType;
   }
 
   /**
@@ -1741,6 +1802,14 @@ public class JSDocInfo implements Serializable {
       return ImmutableList.of();
     }
     return ImmutableList.copyOf(info.templateTypeNames);
+  }
+
+  /** Gets the type transformations. */
+  public ImmutableMap<String, Node> getTypeTransformations() {
+    if (info == null || info.typeTransformations == null) {
+      return ImmutableMap.<String, Node>of();
+    }
+    return ImmutableMap.copyOf(info.typeTransformations);
   }
 
   /**

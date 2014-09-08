@@ -26,8 +26,81 @@ import com.google.javascript.jscomp.parsing.Config.LanguageMode;
 import com.google.javascript.jscomp.parsing.parser.IdentifierToken;
 import com.google.javascript.jscomp.parsing.parser.LiteralToken;
 import com.google.javascript.jscomp.parsing.parser.TokenType;
-import com.google.javascript.jscomp.parsing.parser.trees.*;
+import com.google.javascript.jscomp.parsing.parser.trees.ArrayLiteralExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ArrayPatternTree;
+import com.google.javascript.jscomp.parsing.parser.trees.AssignmentRestElementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.BinaryOperatorTree;
+import com.google.javascript.jscomp.parsing.parser.trees.BlockTree;
+import com.google.javascript.jscomp.parsing.parser.trees.BreakStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.CallExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.CaseClauseTree;
+import com.google.javascript.jscomp.parsing.parser.trees.CatchTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ClassDeclarationTree;
+import com.google.javascript.jscomp.parsing.parser.trees.CommaExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.Comment;
+import com.google.javascript.jscomp.parsing.parser.trees.ComprehensionForTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ComprehensionIfTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ComprehensionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ComputedPropertyDefinitionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ComputedPropertyGetterTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ComputedPropertyMethodTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ComputedPropertySetterTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ConditionalExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ContinueStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.DebuggerStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.DefaultClauseTree;
+import com.google.javascript.jscomp.parsing.parser.trees.DefaultParameterTree;
+import com.google.javascript.jscomp.parsing.parser.trees.DoWhileStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.EmptyStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ExportDeclarationTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ExportSpecifierTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ExpressionStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.FinallyTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ForInStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ForOfStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ForStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.FormalParameterListTree;
+import com.google.javascript.jscomp.parsing.parser.trees.FunctionDeclarationTree;
+import com.google.javascript.jscomp.parsing.parser.trees.GetAccessorTree;
+import com.google.javascript.jscomp.parsing.parser.trees.IdentifierExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.IfStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ImportDeclarationTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ImportSpecifierTree;
+import com.google.javascript.jscomp.parsing.parser.trees.LabelledStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.LiteralExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.MemberExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.MemberLookupExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.MissingPrimaryExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ModuleImportTree;
+import com.google.javascript.jscomp.parsing.parser.trees.NewExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.NullTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ObjectLiteralExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ObjectPatternTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ParenExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ParseTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ParseTreeType;
+import com.google.javascript.jscomp.parsing.parser.trees.PostfixExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ProgramTree;
+import com.google.javascript.jscomp.parsing.parser.trees.PropertyNameAssignmentTree;
+import com.google.javascript.jscomp.parsing.parser.trees.RestParameterTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ReturnStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.SetAccessorTree;
+import com.google.javascript.jscomp.parsing.parser.trees.SpreadExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.SuperExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.SwitchStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.TemplateLiteralExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.TemplateLiteralPortionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.TemplateSubstitutionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ThisExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ThrowStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.TryStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.UnaryExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.VariableDeclarationListTree;
+import com.google.javascript.jscomp.parsing.parser.trees.VariableDeclarationTree;
+import com.google.javascript.jscomp.parsing.parser.trees.VariableStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.WhileStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.WithStatementTree;
+import com.google.javascript.jscomp.parsing.parser.trees.YieldExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.util.SourcePosition;
 import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
 import com.google.javascript.rhino.ErrorReporter;
@@ -90,6 +163,9 @@ class NewIRFactory {
 
   static final String DUPLICATE_PARAMETER =
       "Duplicate parameter name \"%s\"";
+
+  static final String DUPLICATE_LABEL =
+      "Duplicate label \"%s\"";
 
   static final String UNLABELED_BREAK =
       "unlabelled break must be inside loop or switch";
@@ -244,6 +320,7 @@ class NewIRFactory {
     validateTypeAnnotations(n);
     validateParameters(n);
     validateBreakContinue(n);
+    validateLabel(n);
   }
 
   private void validateBreakContinue(Node n) {
@@ -410,6 +487,22 @@ class NewIRFactory {
         errorReporter.warning(MISPLACED_TYPE_ANNOTATION,
             sourceName,
             n.getLineno(), n.getCharno());
+      }
+    }
+  }
+
+  private void validateLabel(Node n) {
+    if (n.isLabel()) {
+      Node labelName = n.getFirstChild();
+      for (Node parent = n.getParent();
+           parent != null && !parent.isFunction(); parent = parent.getParent()) {
+        if (parent.isLabel() && labelsMatch(parent, labelName)) {
+          errorReporter.error(
+              String.format(DUPLICATE_LABEL, labelName.getString()),
+              sourceName,
+              n.getLineno(), n.getCharno());
+          break;
+        }
       }
     }
   }
@@ -843,37 +936,17 @@ class NewIRFactory {
 
     @Override
     Node processComprehension(ComprehensionTree tree) {
-      maybeWarnEs6Feature(tree, "array/generator comprehensions");
-
-      int type;
-      switch (tree.type) {
-        case ARRAY:
-          type = Token.ARRAY_COMP;
-          break;
-        case GENERATOR:
-         type = Token.GENERATOR_COMP;
-          break;
-        default:
-          throw new IllegalStateException("unreachable");
-      }
-      Node node = newNode(type);
-      for (ParseTree child : tree.children) {
-        node.addChildToBack(transform(child));
-      }
-      node.addChildToBack(transform(tree.tailExpression));
-      return node;
+      return unsupportedLanguageFeature(tree, "array/generator comprehensions");
     }
 
     @Override
     Node processComprehensionFor(ComprehensionForTree tree) {
-      return newNode(Token.FOR_OF,
-          transform(tree.initializer),
-          transform(tree.collection));
+      return unsupportedLanguageFeature(tree, "array/generator comprehensions");
     }
 
     @Override
     Node processComprehensionIf(ComprehensionIfTree tree) {
-      return newNode(Token.IF, transform(tree.expression));
+      return unsupportedLanguageFeature(tree, "array/generator comprehensions");
     }
 
     @Override
@@ -904,16 +977,6 @@ class NewIRFactory {
       Node node = newNode(Token.OBJECT_PATTERN);
       for (ParseTree child : tree.fields) {
         node.addChildToBack(transform(child));
-      }
-      return node;
-    }
-
-    @Override
-    Node processObjectPatternField(ObjectPatternFieldTree tree) {
-      Node node = processObjectLitKeyAsString(tree.identifier);
-      node.setType(Token.STRING_KEY);
-      if (tree.element != null) {
-        node.addChildToBack(transform(tree.element));
       }
       return node;
     }
@@ -1165,6 +1228,9 @@ class NewIRFactory {
       parseDirectives(bodyNode);
       node.addChildToBack(bodyNode);
 
+      node.setIsGeneratorFunction(isGenerator);
+      node.setIsArrowFunction(isArrow);
+
       Node result;
 
       if (functionTree.kind == FunctionDeclarationTree.Kind.MEMBER) {
@@ -1176,9 +1242,6 @@ class NewIRFactory {
       } else {
         result = node;
       }
-
-      result.setIsGeneratorFunction(isGenerator);
-      result.setIsArrowFunction(isArrow);
 
       return result;
     }
@@ -1201,8 +1264,14 @@ class NewIRFactory {
     @Override
     Node processDefaultParameter(DefaultParameterTree tree) {
       maybeWarnEs6Feature(tree, "default parameters");
+      Node lhs = transform(tree.lhs);
+      if (tree.lhs instanceof ArrayLiteralExpressionTree) {
+        lhs.setType(Token.ARRAY_PATTERN);
+      } else if (tree.lhs instanceof ObjectLiteralExpressionTree) {
+        lhs.setType(Token.OBJECT_PATTERN);
+      }
       return newNode(Token.DEFAULT_VALUE,
-          transform(tree.lhs), transform(tree.defaultValue));
+          lhs, transform(tree.defaultValue));
     }
 
     @Override
@@ -1239,7 +1308,7 @@ class NewIRFactory {
 
       if (isAssignmentOp(n)) {
         Node target = n.getFirstChild();
-        if (!validAssignmentTarget(target)) {
+        if (!target.isValidAssignmentTarget()) {
           errorReporter.error(
               "invalid assignment target: " + target,
               sourceName,
@@ -1324,19 +1393,19 @@ class NewIRFactory {
 
     Node processString(LiteralToken token) {
       Preconditions.checkArgument(token.type == TokenType.STRING);
-      Node node = newStringNode(Token.STRING, normalizeString(token));
+      Node node = newStringNode(Token.STRING, normalizeString(token, false));
       setSourceInfo(node, token);
       return node;
     }
 
-    Node processTemplateString(LiteralToken token) {
+    Node processTemplateLiteralToken(LiteralToken token) {
       Preconditions.checkArgument(
           token.type == TokenType.NO_SUBSTITUTION_TEMPLATE
           || token.type == TokenType.TEMPLATE_HEAD
           || token.type == TokenType.TEMPLATE_MIDDLE
           || token.type == TokenType.TEMPLATE_TAIL);
-      // <CR><LF> and <CR> are normalized as <LF> for raw string value
-      Node node = newStringNode(token.value.replaceAll("\\r(\\n)?", "\n"));
+      Node node = newStringNode(normalizeString(token, true));
+      node.putProp(Node.RAW_STRING_VALUE, token.value);
       setSourceInfo(node, token);
       return node;
     }
@@ -1427,11 +1496,51 @@ class NewIRFactory {
     }
 
     @Override
-    Node processComputedProperty(ComputedPropertyAssignmentTree tree) {
+    Node processComputedPropertyDefinition(ComputedPropertyDefinitionTree tree) {
       maybeWarnEs6Feature(tree, "computed property");
 
       return newNode(Token.COMPUTED_PROP,
           transform(tree.property), transform(tree.value));
+    }
+
+    @Override
+    Node processComputedPropertyMethod(ComputedPropertyMethodTree tree) {
+      maybeWarnEs6Feature(tree, "computed property");
+
+      Node n = newNode(Token.COMPUTED_PROP,
+          transform(tree.property), transform(tree.method));
+      n.putBooleanProp(Node.COMPUTED_PROP_METHOD, true);
+      if (tree.method.asFunctionDeclaration().isStatic) {
+        n.setStaticMember(true);
+      }
+      return n;
+    }
+
+    @Override
+    Node processComputedPropertyGetter(ComputedPropertyGetterTree tree) {
+      maybeWarnEs6Feature(tree, "computed property");
+
+      Node key = transform(tree.property);
+      Node body = transform(tree.body);
+      Node function = IR.function(IR.name(""), IR.paramList(), body);
+      function.useSourceInfoIfMissingFromForTree(body);
+      Node n = newNode(Token.COMPUTED_PROP, key, function);
+      n.putBooleanProp(Node.COMPUTED_PROP_GETTER, true);
+      return n;
+    }
+
+    @Override
+    Node processComputedPropertySetter(ComputedPropertySetterTree tree) {
+      maybeWarnEs6Feature(tree, "computed property");
+
+      Node key = transform(tree.property);
+      Node body = transform(tree.body);
+      Node paramList = IR.paramList(safeProcessName(tree.parameter));
+      Node function = IR.function(IR.name(""), paramList, body);
+      function.useSourceInfoIfMissingFromForTree(body);
+      Node n = newNode(Token.COMPUTED_PROP, key, function);
+      n.putBooleanProp(Node.COMPUTED_PROP_SETTER, true);
+      return n;
     }
 
     @Override
@@ -1588,7 +1697,7 @@ class NewIRFactory {
 
     @Override
     Node processTemplateLiteral(TemplateLiteralExpressionTree tree) {
-      maybeWarnEs6Feature(tree, "template strings");
+      maybeWarnEs6Feature(tree, "template literals");
       Node node = tree.operand == null
           ? newNode(Token.TEMPLATELIT)
           : newNode(Token.TEMPLATELIT, transform(tree.operand));
@@ -1600,7 +1709,7 @@ class NewIRFactory {
 
     @Override
     Node processTemplateLiteralPortion(TemplateLiteralPortionTree tree) {
-      return processTemplateString(tree.value.asLiteral());
+      return processTemplateLiteralToken(tree.value.asLiteral());
     }
 
     @Override
@@ -1720,7 +1829,7 @@ class NewIRFactory {
               sourceName,
               operand.getLineno(), 0);
         } else  if (type == Token.INC || type == Token.DEC) {
-          if (!validAssignmentTarget(operand)) {
+          if (!operand.isValidAssignmentTarget()) {
             String msg = (type == Token.INC)
                 ? "invalid increment target"
                 : "invalid decrement target";
@@ -1740,7 +1849,7 @@ class NewIRFactory {
       int type = transformPostfixTokenType(exprNode.operator.type);
       Node operand = transform(exprNode.operand);
       // Only INC and DEC
-      if (!validAssignmentTarget(operand)) {
+      if (!operand.isValidAssignmentTarget()) {
         String msg = (type == Token.INC)
             ? "invalid increment target"
             : "invalid decrement target";
@@ -1753,19 +1862,6 @@ class NewIRFactory {
       Node node = newNode(type, operand);
       node.putBooleanProp(Node.INCRDECR_PROP, true);
       return node;
-    }
-
-    private boolean validAssignmentTarget(Node target) {
-      switch (target.getType()) {
-        case Token.CAST: // CAST is a bit weird, but syntactically valid.
-        case Token.NAME:
-        case Token.GETPROP:
-        case Token.GETELEM:
-        case Token.ARRAY_PATTERN:
-        case Token.OBJECT_PATTERN:
-          return true;
-      }
-      return false;
     }
 
     @Override
@@ -2062,13 +2158,17 @@ class NewIRFactory {
   }
 
 
-  private String normalizeString(LiteralToken token) {
+  private String normalizeString(LiteralToken token, boolean templateLiteral) {
     String value = token.value;
-    int start = 1; // skip the leading quote
+    if (templateLiteral) {
+      // <CR><LF> and <CR> are normalized as <LF> for raw string value
+      value = value.replaceAll("(?<!\\\\)\r(\n)?", "\n");
+    }
+    int start = templateLiteral ? 0 : 1; // skip the leading quote
     int cur = value.indexOf('\\');
     if (cur == -1) {
       // short circuit no escapes.
-      return value.substring(1, value.length() - 1);
+      return templateLiteral ? value : value.substring(1, value.length() - 1);
     }
     StringBuilder result = new StringBuilder();
     while (cur != -1) {
@@ -2173,7 +2273,7 @@ class NewIRFactory {
       cur = value.indexOf('\\', start);
     }
     // skip the trailing quote.
-    result.append(value, start, value.length() - 1);
+    result.append(value, start, templateLiteral ? value.length() : value.length() - 1);
 
     return result.toString();
   }

@@ -1001,6 +1001,12 @@ CSSProperties.prototype.backgroundPosition;
 CSSProperties.prototype.backgroundRepeat;
 
 /**
+ * @type {string}
+ * @see http://www.w3.org/TR/css3-background/#the-background-size
+ */
+CSSProperties.prototype.backgroundSize;
+
+/**
  * @implicitCast
  * @type {string}
  * @see http://www.w3.org/TR/DOM-Level-2-Style/css.html#CSS-CSSProperties-border
@@ -2455,13 +2461,19 @@ FontFaceSet.prototype.clear = function() {};
  */
 FontFaceSet.prototype.delete = function(value) {};
 
-
 /**
  * @param {!FontFace} font
  * @return {boolean}
  * @see http://dev.w3.org/csswg/css-font-loading/#dom-fontfaceset-has
  */
 FontFaceSet.prototype.has = function(font) {};
+
+/**
+ * @param {function(!FontFace, number, !FontFaceSet)} cb
+ * @param {Object|undefined=} opt_selfObj
+ * see http://dev.w3.org/csswg/css-font-loading/#dom-fontfaceset-foreach
+ */
+FontFaceSet.prototype.forEach = function(cb, opt_selfObj) {};
 
 /**
  * @param {string} font

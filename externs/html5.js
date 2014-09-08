@@ -1197,6 +1197,16 @@ HTMLAnchorElement.prototype.hostname;
 /** @type {string} */
 HTMLAnchorElement.prototype.pathname;
 
+/**
+ * The 'ping' attribute is known to be supported in recent versions (as of
+ * mid-2014) of Chrome, Safari, and Firefox, and is not supported in any
+ * current version of Internet Explorer.
+ *
+ * @type {string}
+ * @see http://www.whatwg.org/specs/web-apps/current-work/multipage/semantics.html#hyperlink-auditing
+ */
+HTMLAnchorElement.prototype.ping;
+
 /** @type {string} */
 HTMLAnchorElement.prototype.port;
 
@@ -1205,6 +1215,12 @@ HTMLAnchorElement.prototype.protocol;
 
 /** @type {string} */
 HTMLAnchorElement.prototype.search;
+
+/**
+ * @type {string}
+ * @see http://www.whatwg.org/specs/web-apps/current-work/multipage/semantics.html#hyperlink-auditing
+ */
+HTMLAreaElement.prototype.ping;
 
 /** @type {string} */
 HTMLInputElement.prototype.autocomplete;
@@ -1794,6 +1810,25 @@ DataTransfer.prototype.addElement = function(elem) {};
 MouseEvent.prototype.dataTransfer;
 
 /**
+ * @see http://www.w3.org/TR/DOM-Level-3-Events/#interface-WheelEvent
+ * @constructor
+ * @extends {MouseEvent}
+ */
+var WheelEvent = function() {};
+
+/** @const {number} */
+WheelEvent.prototype.deltaX;
+
+/** @const {number} */
+WheelEvent.prototype.deltaY;
+
+/** @const {number} */
+WheelEvent.prototype.deltaZ;
+
+/** @const {number} */
+WheelEvent.prototype.deltaMode;
+
+/**
  * HTML5 DataTransferItem class.
  *
  * @see http://www.w3.org/TR/2011/WD-html5-20110113/dnd.html
@@ -2279,9 +2314,14 @@ DOMTokenList.prototype.remove = function(token) {};
 
 /**
  * @param {string} token The CSS class to toggle from this element.
+ * @param {boolean=} opt_force True to add the class whether it exists
+ *     or not. False to remove the class whether it exists or not.
+ *     This argument is not supported on IE 10 and below, according to
+ *     the MDN page linked below.
  * @return {boolean} False if the token was removed; True otherwise.
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/Element.classList
  */
-DOMTokenList.prototype.toggle = function(token) {};
+DOMTokenList.prototype.toggle = function(token, opt_force) {};
 
 /**
  * @return {string} A stringified representation of CSS classes.

@@ -16,15 +16,15 @@
 
 package com.google.javascript.jscomp.parsing;
 
-import com.google.common.base.CharMatcher;
-import com.google.common.collect.ImmutableList;
+import com.google.common.base.Preconditions;
+import com.google.common.math.DoubleMath;
 import com.google.javascript.jscomp.parsing.Config.LanguageMode;
 import com.google.javascript.jscomp.parsing.ParserRunner.ParseResult;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.SimpleErrorReporter;
 import com.google.javascript.rhino.jstype.StaticSourceFile;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 
 /**
@@ -32,88 +32,213 @@ import java.util.HashSet;
  * @template T := TTL-Exp =:
  *
  */
-final class TypeTransformationParser {
+public final class TypeTransformationParser {
 
-  final class TypeTransformationWarning {
-    String messageId;
-    Node nodeWarning;
-    String messageArg;
-
-    TypeTransformationWarning(
-        String messageId, String messageArg, Node nodeWarning) {
-      this.messageId = messageId;
-      this.messageArg = messageArg;
-      this.nodeWarning = nodeWarning;
-    }
-  }
-
-  private ArrayList<TypeTransformationWarning> warnings;
   private String typeTransformationString;
   private Node typeTransformationAst;
   private StaticSourceFile sourceFile;
   private ErrorReporter errorReporter;
+  private int templateLineno, templateCharno;
 
-  private static final CharMatcher TYPEVAR_FIRSTLETTER_MATCHER =
-      CharMatcher.JAVA_LETTER.or(CharMatcher.is('_')).or(CharMatcher.is('$'));
-  private static final CharMatcher TYPEVAR_MATCHER =
-      CharMatcher.JAVA_LETTER_OR_DIGIT
-      .or(CharMatcher.is('_')).or(CharMatcher.is('$'));
+  private static final int VAR_ARGS = Integer.MAX_VALUE;
 
-  private static final String TYPE_KEYWORD = "type",
-      UNION_KEYWORD = "union",
-      COND_KEYWORD = "cond",
-      MAPUNION_KEYWORD = "mapunion",
-      EQTYPE_PREDICATE = "eq",
-      SUBTYPE_PREDICATE = "sub";
+  /** The classification of the keywords */
+  public static enum OperationKind {
+    TYPE_CONSTRUCTOR,
+    OPERATION,
+    STRING_PREDICATE,
+    TYPE_PREDICATE,
+    TYPEVAR_PREDICATE
+  }
 
-  private static final ImmutableList<String>
-  TYPE_CONSTRUCTORS = ImmutableList.of(TYPE_KEYWORD, UNION_KEYWORD),
-  OPERATIONS = ImmutableList.of(COND_KEYWORD, MAPUNION_KEYWORD),
-  BOOLEAN_PREDICATES = ImmutableList.of(EQTYPE_PREDICATE, SUBTYPE_PREDICATE);
+  /** Keywords of the type transformation language */
+  public static enum Keywords {
+    ALL("all", 0, 0, OperationKind.TYPE_CONSTRUCTOR),
+    COND("cond", 3, 3, OperationKind.OPERATION),
+    EQ("eq", 2, 2, OperationKind.TYPE_PREDICATE),
+    ISCTOR("isCtor", 1, 1, OperationKind.TYPE_PREDICATE),
+    ISDEFINED("isDefined", 1, 1, OperationKind.TYPEVAR_PREDICATE),
+    ISRECORD("isRecord", 1, 1, OperationKind.TYPE_PREDICATE),
+    ISTEMPLATIZED("isTemplatized", 1, 1, OperationKind.TYPE_PREDICATE),
+    ISUNKNOWN("isUnknown", 1, 1, OperationKind.TYPE_PREDICATE),
+    INSTANCEOF("instanceOf", 1, 1, OperationKind.OPERATION),
+    MAPUNION("mapunion", 2, 2, OperationKind.OPERATION),
+    MAPRECORD("maprecord", 2, 2, OperationKind.OPERATION),
+    NONE("none", 0, 0, OperationKind.TYPE_CONSTRUCTOR),
+    PRINTTYPE("printType", 2, 2, OperationKind.OPERATION),
+    PROPTYPE("propType", 2, 2, OperationKind.OPERATION),
+    RAWTYPEOF("rawTypeOf", 1, 1, OperationKind.TYPE_CONSTRUCTOR),
+    SUB("sub", 2, 2, OperationKind.TYPE_PREDICATE),
+    STREQ("streq", 2, 2, OperationKind.STRING_PREDICATE),
+    RECORD("record", 1, VAR_ARGS, OperationKind.TYPE_CONSTRUCTOR),
+    TEMPLATETYPEOF("templateTypeOf", 2, 2, OperationKind.TYPE_CONSTRUCTOR),
+    TYPE("type", 2, VAR_ARGS, OperationKind.TYPE_CONSTRUCTOR),
+    TYPEEXPR("typeExpr", 1, 1, OperationKind.TYPE_CONSTRUCTOR),
+    TYPEOFVAR("typeOfVar", 1, 1, OperationKind.OPERATION),
+    UNION("union", 2, VAR_ARGS, OperationKind.TYPE_CONSTRUCTOR),
+    UNKNOWN("unknown", 0, 0, OperationKind.TYPE_CONSTRUCTOR);
 
-  private static final int TYPE_MIN_PARAM_COUNT = 1,
-      TYPE_MAX_PARAM_COUNT = 1,
-      UNION_MIN_PARAM_COUNT = 2,
-      COND_PARAM_COUNT = 3,
-      BOOLPRED_PARAM_COUNT = 2,
-      MAPUNION_PARAM_COUNT = 2;
+    public final String name;
+    public final int minParamCount, maxParamCount;
+    public final OperationKind kind;
+
+    Keywords(String name, int minParamCount, int maxParamCount,
+        OperationKind kind) {
+      this.name = name;
+      this.minParamCount = minParamCount;
+      this.maxParamCount = maxParamCount;
+      this.kind = kind;
+    }
+  }
 
   public TypeTransformationParser(String typeTransformationString,
-      StaticSourceFile sourceFile, ErrorReporter errorReporter) {
+      StaticSourceFile sourceFile, ErrorReporter errorReporter,
+      int templateLineno, int templateCharno) {
     this.typeTransformationString = typeTransformationString;
     this.sourceFile = sourceFile;
     this.errorReporter = errorReporter;
-    warnings = new ArrayList<>();
+    this.templateLineno = templateLineno;
+    this.templateCharno = templateCharno;
   }
 
   public Node getTypeTransformationAst() {
     return typeTransformationAst;
   }
 
-  public ArrayList<TypeTransformationWarning> getWarnings() {
-    return warnings;
+  private void addNewWarning(String messageId, String messageArg, Node nodeWarning) {
+    // TODO(lpino): Use the exact lineno and charno, it is currently using
+    // the lineno and charno of the parent @template
+    // TODO(lpino): Use only constants as parameters of this method
+    errorReporter.warning(
+        "Bad type annotation. "
+            + SimpleErrorReporter.getMessage1(messageId, messageArg),
+            sourceFile.getName(),
+            templateLineno,
+            templateCharno);
   }
 
-  private void addNewWarning(String messageId, Node nodeWarning) {
-    addNewWarning(messageId, "", nodeWarning);
+  private Keywords nameToKeyword(String s) {
+    return Keywords.valueOf(s.toUpperCase());
   }
 
-  private void addNewWarning(
-      String messageId, String messageArg, Node nodeWarning) {
-    TypeTransformationWarning newWarning =
-        new TypeTransformationWarning(messageId, messageArg, nodeWarning);
-    warnings.add(newWarning);
+  private boolean isValidKeyword(String name) {
+    for (Keywords k : Keywords.values()) {
+      if (k.name.equals(name)) {
+        return true;
+      }
+    }
+    return false;
   }
+
+  private boolean isOperationKind(String name, OperationKind kind) {
+    return isValidKeyword(name) && nameToKeyword(name).kind == kind;
+  }
+
+  private boolean isValidStringPredicate(String name) {
+    return isOperationKind(name, OperationKind.STRING_PREDICATE);
+  }
+
+  private boolean isValidTypePredicate(String name) {
+    return isOperationKind(name, OperationKind.TYPE_PREDICATE);
+  }
+
+  private boolean isValidTypevarPredicate(String name) {
+    return isOperationKind(name, OperationKind.TYPEVAR_PREDICATE);
+  }
+
+  private boolean isBooleanOperation(Node n) {
+    return n.isAnd() || n.isOr() || n.isNot();
+  }
+
+  private boolean isValidPredicate(String name) {
+    return isValidStringPredicate(name)
+        || isValidTypePredicate(name)
+        || isValidTypevarPredicate(name);
+  }
+
+  private int getFunctionParamCount(Node n) {
+    Preconditions.checkArgument(n.isFunction(),
+        "Expected a function node, found %s", n);
+    return n.getChildAtIndex(1).getChildCount();
+  }
+
+  private Node getFunctionBody(Node n) {
+    Preconditions.checkArgument(n.isFunction(),
+        "Expected a function node, found %s", n);
+    return n.getChildAtIndex(2);
+  }
+
+  private String getCallName(Node n) {
+    Preconditions.checkArgument(n.isCall(),
+        "Expected a call node, found %s", n);
+    return n.getFirstChild().getString();
+  }
+
+  private Node getCallArgument(Node n, int i) {
+    Preconditions.checkArgument(n.isCall(),
+        "Expected a call node, found %s", n);
+    return n.getChildAtIndex(i + 1);
+  }
+
+  private int getCallParamCount(Node n) {
+    Preconditions.checkArgument(n.isCall(),
+        "Expected a call node, found %s", n);
+    return n.getChildCount() - 1;
+  }
+
+  private boolean isTypeVar(Node n) {
+    return n.isName();
+  }
+
+  private boolean isTypeName(Node n) {
+    return n.isString();
+  }
+
+  private boolean isOperation(Node n) {
+    return n.isCall();
+  }
+
   /**
-   * The type variables in type transformation annotations must begin with a
-   * letter, an underscore (_), or a dollar sign ($). Subsequent characters
-   * can be letters, digits, underscores, or dollar signs.
-   * This follows the same convention as JavaScript identifiers.
+   * A valid expression is either:
+   * - NAME for a type variable
+   * - STRING for a type name
+   * - CALL for the other expressions
    */
-  private boolean validTypeTransformationName(String name) {
-    return !name.isEmpty()
-        && TYPEVAR_FIRSTLETTER_MATCHER.matches(name.charAt(0))
-        && TYPEVAR_MATCHER.matchesAllOf(name);
+  private boolean isValidExpression(Node e) {
+    return isTypeVar(e) || isTypeName(e) || isOperation(e);
+  }
+
+  private void warnInvalid(String msg, Node e) {
+    addNewWarning("msg.jsdoc.typetransformation.invalid", msg, e);
+  }
+
+  private void warnInvalidExpression(String msg, Node e) {
+    addNewWarning("msg.jsdoc.typetransformation.invalid.expression", msg, e);
+  }
+
+  private void warnMissingParam(String msg, Node e) {
+    addNewWarning("msg.jsdoc.typetransformation.missing.param", msg, e);
+  }
+
+  private void warnExtraParam(String msg, Node e) {
+    addNewWarning("msg.jsdoc.typetransformation.extra.param", msg, e);
+  }
+
+  private void warnInvalidInside(String msg, Node e) {
+    addNewWarning("msg.jsdoc.typetransformation.invalid.inside", msg, e);
+  }
+
+  private boolean checkParameterCount(Node expr, Keywords keyword) {
+    int paramCount = getCallParamCount(expr);
+    if (paramCount < keyword.minParamCount) {
+      warnMissingParam(keyword.name, expr);
+      return false;
+    }
+    if (paramCount > keyword.maxParamCount) {
+      warnExtraParam(keyword.name, expr);
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -121,7 +246,7 @@ final class TypeTransformationParser {
    * the ParserRunner of the JSCompiler and then verifies that it is a valid
    * AST.
    * @return true if the parsing was successful otherwise it returns false and
-   * at least one entry is added to the warnings field.
+   * at least one warning is reported
    */
   public boolean parseTypeTransformation() {
     Config config = new Config(new HashSet<String>(),
@@ -134,8 +259,7 @@ final class TypeTransformationParser {
     Node ast = result.ast;
     // Check that the expression is a script with an expression result
     if (!ast.isScript() || !ast.getFirstChild().isExprResult()) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.expression",
-          "type transformation", ast);
+      warnInvalidExpression("type transformation", ast);
       return false;
     }
 
@@ -151,103 +275,27 @@ final class TypeTransformationParser {
   }
 
   /**
-   * Checks whether the expression is a valid type variable
+   * A template type expression must be of the form type(typename, TTLExp,...)
+   * or type(typevar, TTLExp...)
    */
-  private boolean validTTLTypeVar(Node expression) {
-    // A type variable must be a NAME node
-    if (!expression.isName()) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.typevar", expression);
+  private boolean validTemplateTypeExpression(Node expr) {
+    // The expression must have at least three children the type keyword,
+    // a type name (or type variable) and a type expression
+    if (!checkParameterCount(expr, Keywords.TYPE)) {
       return false;
     }
-    // It must be a valid template type name
-    if (!validTypeTransformationName(expression.getString())) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.typevar", expression);
+    int paramCount = getCallParamCount(expr);
+    // The first parameter must be a type variable or a type name
+    Node firstParam = getCallArgument(expr, 0);
+    if (!isTypeVar(firstParam) && !isTypeName(firstParam)) {
+      warnInvalid("type name or type variable", expr);
+      warnInvalidInside("template type operation", expr);
       return false;
     }
-    return true;
-  }
-
-  /**
-   * A Basic type expression must be a valid type variable or a type('typename')
-   */
-  private boolean validTTLBasicTypeExpression(Node expression) {
-    // A basic type expression must be a NAME for a type variable or
-    // a CALL for type('typename')
-    if (!expression.isName() && !expression.isCall()) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.expression",
-          "basic type", expression);
-      return false;
-    }
-    // If the expression is a type variable it must be valid
-    if (expression.isName()) {
-      return validTTLTypeVar(expression);
-    }
-    // If the expression is a type it must start with type keyword
-    if (!expression.getFirstChild().getString().equals(TYPE_KEYWORD)) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.expression",
-          "basic type", expression);
-      return false;
-    }
-    // The expression must have two children:
-    // - The type keyword
-    // - The 'typename' string
-    if (expression.getChildCount() < 1 + TYPE_MIN_PARAM_COUNT) {
-      addNewWarning("msg.jsdoc.typetransformation.missing.param",
-          "type operation", expression);
-      return false;
-    }
-    if (expression.getChildCount() > 1 + TYPE_MAX_PARAM_COUNT) {
-      addNewWarning("msg.jsdoc.typetransformation.extra.param",
-          "type operation", expression);
-      return false;
-    }
-    // The 'typename' must be a string
-    if (!expression.getChildAtIndex(1).isString()) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid", "type name", expression);
-      return false;
-    }
-    return true;
-  }
-
-  /**
-   * A Union type expression must be a valid type variable or
-   * a union(Basictype-Exp, Basictype-Exp, ...)
-   */
-  private boolean validTTLUnionTypeExpression(Node expression) {
-    // A union expression must be a NAME for type variables or
-    // a CALL for union(BasicType-Exp, BasicType-Exp,...)
-    if (!expression.isName() && !expression.isCall()) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.expression",
-          "union type", expression);
-      return false;
-    }
-    // If the expression is a type variable it must be valid
-    if (expression.isName()) {
-      return validTTLTypeVar(expression);
-    }
-    // Otherwise it must start with union keyword
-    if (!expression.getFirstChild().getString().equals(UNION_KEYWORD)) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.expression",
-          "union type", expression);
-      return false;
-    }
-    // The expression must have at least three children:
-    // - The union keyword
-    // - At least two basic types as parameters
-    if (expression.getChildCount() < 1 + UNION_MIN_PARAM_COUNT) {
-      addNewWarning("msg.jsdoc.typetransformation.missing.param",
-          "union type", expression);
-      return false;
-    }
-    // Check if each of the members of the union is a valid BasicType-Exp
-    for (Node basicExp : expression.children()) {
-      // Omit the first child since it is the union keyword
-      if (basicExp.equals(expression.getFirstChild())) {
-        continue;
-      }
-      if (!validTTLBasicTypeExpression(basicExp)) {
-        addNewWarning("msg.jsdoc.typetransformation.invalid.inside",
-            "union type", expression);
+    // The rest of the parameters must be valid type expressions
+    for (int i = 1; i < paramCount; i++) {
+      if (!validTypeTransformationExpression(getCallArgument(expr, i))) {
+        warnInvalidInside("template type operation", expr);
         return false;
       }
     }
@@ -255,108 +303,314 @@ final class TypeTransformationParser {
   }
 
   /**
-   * A TTL type expression must be a type variable, a basic type expression
-   * or a union type expression
+   * A Union type expression must be a valid type variable or
+   * a union(TTLExp, TTLExp, ...)
    */
-  private boolean validTTLTypeExpression(Node expression) {
-    if (!expression.isName() && !expression.isCall()) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.expression",
-          "type", expression);
+  private boolean validUnionTypeExpression(Node expr) {
+    // The expression must have at least three children: The union keyword and
+    // two type expressions
+    if (!checkParameterCount(expr, Keywords.UNION)) {
       return false;
     }
-    // If the expression is a type variable it must be valid
-    if (expression.isName()) {
-      return validTTLTypeVar(expression);
+    int paramCount = getCallParamCount(expr);
+    // Check if each of the members of the union is a valid type expression
+    for (int i = 0; i < paramCount; i++) {
+      if (!validTypeTransformationExpression(getCallArgument(expr, i))) {
+        warnInvalidInside("union type", expr);
+        return false;
+      }
     }
-    // If it is a CALL we can safely move one level down
-    Node operation = expression.getFirstChild();
-    // Check for valid operations
-    if (!TYPE_CONSTRUCTORS.contains(operation.getString())) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.expression",
-          "type", operation);
-      return false;
-    }
-    // Use the right verifier
-    if (operation.getString().equals(TYPE_KEYWORD)) {
-      return validTTLBasicTypeExpression(expression);
-    }
-    return validTTLUnionTypeExpression(expression);
+    return true;
   }
 
   /**
-   * A boolean expression (Bool-Exp) must follow the syntax:
-   * Bool-Exp := eq(Type-Exp, Type-Exp) | sub(Type-Exp, Type-Exp)
+   * A none type expression must be of the form: none()
    */
-  private boolean validTTLBooleanTypeExpression(Node expression) {
-    // it must be a CALL for eq and sub predicates
-    if (!expression.isCall()) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.expression",
-          "boolean", expression);
+  private boolean validNoneTypeExpression(Node expr) {
+    // The expression must have no children
+    return checkParameterCount(expr, Keywords.NONE);
+  }
+
+  /**
+   * An all type expression must be of the form: all()
+   */
+  private boolean validAllTypeExpression(Node expr) {
+    // The expression must have no children
+    return checkParameterCount(expr, Keywords.ALL);
+  }
+
+  /**
+   * An unknown type expression must be of the form: unknown()
+   */
+  private boolean validUnknownTypeExpression(Node expr) {
+    // The expression must have no children
+    return checkParameterCount(expr, Keywords.UNKNOWN);
+  }
+
+  /**
+   * A raw type expression must be of the form rawTypeOf(TTLExp)
+   */
+  private boolean validRawTypeOfTypeExpression(Node expr) {
+    // The expression must have two children. The rawTypeOf keyword and the
+    // parameter
+    if (!checkParameterCount(expr, Keywords.RAWTYPEOF)) {
       return false;
     }
-    // Check for valid predicates
-    if (!BOOLEAN_PREDICATES.contains(expression.getFirstChild().getString())) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid",
-          "boolean predicate", expression);
-      return false;
-    }
-    // The expression must have three children:
-    // - The eq or sub keyword
-    // - Two type expressions as parameters
-    if (expression.getChildCount() < 1 + BOOLPRED_PARAM_COUNT) {
-      addNewWarning("msg.jsdoc.typetransformation.missing.param",
-          "boolean predicate", expression);
-      return false;
-    }
-    if (expression.getChildCount() > 1 + BOOLPRED_PARAM_COUNT) {
-      addNewWarning("msg.jsdoc.typetransformation.extra.param",
-          "boolean predicate", expression);
-      return false;
-    }
-    // Both input types must be valid type expressions
-    if (!validTTLTypeExpression(expression.getChildAtIndex(1))
-        || !validTTLTypeExpression(expression.getChildAtIndex(2))) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.inside",
-          "boolean", expression);
+    // The parameter must be a valid type expression
+    if (!validTypeTransformationExpression(getCallArgument(expr, 0))) {
+      warnInvalidInside(Keywords.RAWTYPEOF.name, expr);
       return false;
     }
     return true;
   }
 
   /**
-   * A conditional type transformation expression must be of the
-   * form cond(Bool-Exp, TTL-Exp, TTL-Exp)
+   * A template type of expression must be of the form
+   * templateTypeOf(TTLExp, index)
    */
-  private boolean validTTLCondionalExpression(Node expression) {
+  private boolean validTemplateTypeOfExpression(Node expr) {
+    // The expression must have three children. The templateTypeOf keyword, a
+    // templatized type and an index
+    if (!checkParameterCount(expr, Keywords.TEMPLATETYPEOF)) {
+      return false;
+    }
+    // The parameter must be a valid type expression
+    if (!validTypeTransformationExpression(getCallArgument(expr, 0))) {
+      warnInvalidInside(Keywords.TEMPLATETYPEOF.name, expr);
+      return false;
+    }
+    if (!getCallArgument(expr, 1).isNumber()) {
+      warnInvalid("index", expr);
+      warnInvalidInside(Keywords.TEMPLATETYPEOF.name, expr);
+      return false;
+    }
+    double index = getCallArgument(expr, 1).getDouble();
+    if (!DoubleMath.isMathematicalInteger(index) || index < 0) {
+      warnInvalid("index", expr);
+      warnInvalidInside(Keywords.TEMPLATETYPEOF.name, expr);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * A record must be a valid type transformation expression or a node of the form:
+   * {prop:TTLExp, prop:TTLExp, ...}
+   * Notice that the values are mandatory and they must be valid type
+   * transformation expressions
+   */
+  private boolean validRecordParam(Node expr) {
+    if (expr.isObjectLit()) {
+      // Each value of a property must be a valid expression
+      for (Node prop : expr.children()) {
+        if (!prop.hasChildren()) {
+          warnInvalid("property, missing type", prop);
+          return false;
+        } else if (!validTypeTransformationExpression(prop.getFirstChild())) {
+          return false;
+        }
+      }
+    } else if (!validTypeTransformationExpression(expr)) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * A record type expression must be of the form:
+   * record(RecordExp, RecordExp, ...)
+   */
+  private boolean validRecordTypeExpression(Node expr) {
+    // The expression must have at least two children. The record keyword and
+    // a record expression
+    if (!checkParameterCount(expr, Keywords.RECORD)) {
+      return false;
+    }
+    // Each child must be a valid record
+    for (int i = 0; i < getCallParamCount(expr); i++) {
+      if (!validRecordParam(getCallArgument(expr, i))) {
+        warnInvalidInside(Keywords.RECORD.name, expr);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private boolean validNativeTypeExpr(Node expr) {
+    // The expression must have two children:
+    // - The typeExpr keyword
+    // - A string
+    if (!checkParameterCount(expr, Keywords.TYPEEXPR)) {
+      return false;
+    }
+    Node typeString = getCallArgument(expr, 0);
+    if (!typeString.isString()) {
+      warnInvalidExpression("native type", expr);
+      warnInvalidInside(Keywords.TYPEEXPR.name, expr);
+      return false;
+    }
+    Node typeExpr = JsDocInfoParser.parseTypeString(typeString.getString());
+    typeString.detachFromParent();
+    expr.addChildToBack(typeExpr);
+    return true;
+  }
+
+  /**
+   * A TTL type expression must be a union type, a template type, a record type
+   * or any of the type predicates (none, rawTypeOf, templateTypeOf).
+   */
+  private boolean validTypeExpression(Node expr) {
+    String name = getCallName(expr);
+    Keywords keyword = nameToKeyword(name);
+    switch (keyword) {
+      case TYPE:
+        return validTemplateTypeExpression(expr);
+      case UNION:
+        return validUnionTypeExpression(expr);
+      case NONE:
+        return validNoneTypeExpression(expr);
+      case ALL:
+        return validAllTypeExpression(expr);
+      case UNKNOWN:
+        return validUnknownTypeExpression(expr);
+      case RAWTYPEOF:
+        return validRawTypeOfTypeExpression(expr);
+      case TEMPLATETYPEOF:
+        return validTemplateTypeOfExpression(expr);
+      case RECORD:
+        return validRecordTypeExpression(expr);
+      case TYPEEXPR:
+        return validNativeTypeExpr(expr);
+      default:
+        throw new IllegalStateException("Invalid type expression");
+    }
+  }
+
+  private boolean validTypePredicate(Node expr, int paramCount) {
+    // All the types must be valid type expressions
+    for (int i = 0; i < paramCount; i++) {
+      if (!validTypeTransformationExpression(getCallArgument(expr, i))) {
+        warnInvalidInside("boolean", expr);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private boolean isValidStringParam(Node expr) {
+    if (!expr.isName() && !expr.isString()) {
+      warnInvalid("string", expr);
+      return false;
+    }
+    if (expr.getString().isEmpty()) {
+      warnInvalid("string parameter", expr);
+      return false;
+    }
+    return true;
+  }
+
+  private boolean validStringPredicate(Node expr, int paramCount) {
+    // Each parameter must be valid string parameter
+    for (int i = 0; i < paramCount; i++) {
+      if (!isValidStringParam(getCallArgument(expr, i))) {
+        warnInvalidInside("boolean", expr);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private boolean validTypevarParam(Node expr) {
+    if (!isTypeVar(expr)) {
+      warnInvalid("name", expr);
+      return false;
+    }
+    return true;
+  }
+
+  private boolean validTypevarPredicate(Node expr, int paramCount) {
+    // Each parameter must be valid string parameter
+    for (int i = 0; i < paramCount; i++) {
+      if (!validTypevarParam(getCallArgument(expr, i))) {
+        warnInvalidInside("boolean", expr);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private boolean validBooleanOperation(Node expr) {
+    boolean valid;
+    if (expr.isNot()) {
+      valid = validBooleanExpression(expr.getFirstChild());
+    } else {
+      valid = validBooleanExpression(expr.getFirstChild())
+          && validBooleanExpression(expr.getChildAtIndex(1));
+    }
+    if (!valid) {
+      warnInvalidInside("boolean", expr);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * A boolean expression must be a boolean predicate or a boolean
+   * type predicate
+   */
+  private boolean validBooleanExpression(Node expr) {
+    if (isBooleanOperation(expr)) {
+      return validBooleanOperation(expr);
+    }
+
+    if (!isOperation(expr)) {
+      warnInvalidExpression("boolean", expr);
+      return false;
+    }
+    if (!isValidPredicate(getCallName(expr))) {
+      warnInvalid("boolean predicate", expr);
+      return false;
+    }
+    Keywords keyword = nameToKeyword(getCallName(expr));
+    if (!checkParameterCount(expr, keyword)) {
+      return false;
+    }
+    switch (keyword.kind) {
+      case TYPE_PREDICATE:
+        return validTypePredicate(expr, getCallParamCount(expr));
+      case STRING_PREDICATE:
+        return validStringPredicate(expr, getCallParamCount(expr));
+      case TYPEVAR_PREDICATE:
+        return validTypevarPredicate(expr, getCallParamCount(expr));
+      default:
+        throw new IllegalStateException("Invalid boolean expression");
+    }
+  }
+
+  /**
+   * A conditional type transformation expression must be of the
+   * form cond(BoolExp, TTLExp, TTLExp)
+   */
+  private boolean validConditionalExpression(Node expr) {
     // The expression must have four children:
     // - The cond keyword
     // - A boolean expression
     // - A type transformation expression with the 'if' branch
     // - A type transformation expression with the 'else' branch
-    if (expression.getChildCount() < 1 + COND_PARAM_COUNT) {
-     addNewWarning("msg.jsdoc.typetransformation.missing.param",
-         "conditional", expression);
-      return false;
-    }
-    if (expression.getChildCount() > 1 + COND_PARAM_COUNT) {
-     addNewWarning("msg.jsdoc.typetransformation.extra.param",
-         "conditional", expression);
+    if (!checkParameterCount(expr, Keywords.COND)) {
       return false;
     }
     // Check for the validity of the boolean and the expressions
-    if (!validTTLBooleanTypeExpression(expression.getChildAtIndex(1))) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.inside",
-          "conditional", expression);
+    if (!validBooleanExpression(getCallArgument(expr, 0))) {
+      warnInvalidInside("conditional", expr);
       return false;
     }
-    if (!validTypeTransformationExpression(expression.getChildAtIndex(2))) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.inside",
-          "conditional", expression);
+    if (!validTypeTransformationExpression(getCallArgument(expr, 1))) {
+      warnInvalidInside("conditional", expr);
       return false;
     }
-    if (!validTypeTransformationExpression(expression.getChildAtIndex(3))) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.inside",
-          "conditional", expression);
+    if (!validTypeTransformationExpression(getCallArgument(expr, 2))) {
+      warnInvalidInside("conditional", expr);
       return false;
     }
     return true;
@@ -364,99 +618,218 @@ final class TypeTransformationParser {
 
   /**
    * A mapunion type transformation expression must be of the form
-   * mapunion(Uniontype-Exp, (typevar) => TTL-Exp).
+   * mapunion(TTLExp, (typevar) => TTLExp).
    */
-  private boolean validTTLMapunionExpression(Node expression) {
+  private boolean validMapunionExpression(Node expr) {
     // The expression must have four children:
     // - The mapunion keyword
     // - A union type expression
     // - A map function
-    if (expression.getChildCount() < 1 + MAPUNION_PARAM_COUNT) {
-      addNewWarning("msg.jsdoc.typetransformation.missing.param",
-          "mapunion", expression);
-      return false;
-    }
-    if (expression.getChildCount() > 1 + MAPUNION_PARAM_COUNT) {
-      addNewWarning("msg.jsdoc.typetransformation.extra.param",
-          "mapunion", expression);
+    if (!checkParameterCount(expr, Keywords.MAPUNION)) {
       return false;
     }
     // The second child must be a valid union type expression
-    if (!validTTLUnionTypeExpression(expression.getChildAtIndex(1))) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.inside",
-          "mapunion", expression.getChildAtIndex(1));
+    if (!validTypeTransformationExpression(getCallArgument(expr, 0))) {
+      warnInvalidInside(Keywords.MAPUNION.name, getCallArgument(expr, 0));
       return false;
     }
     // The third child must be a function
-    if (!expression.getChildAtIndex(2).isFunction()) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid",
-          "map function", expression.getChildAtIndex(2));
+    if (!getCallArgument(expr, 1).isFunction()) {
+      warnInvalid("map function", getCallArgument(expr, 1));
+      warnInvalidInside(Keywords.MAPUNION.name, getCallArgument(expr, 1));
       return false;
     }
-    Node mapFunction = expression.getChildAtIndex(2);
+    Node mapFn = getCallArgument(expr, 1);
     // The map function must have only one parameter
-    if (!mapFunction.getChildAtIndex(1).hasChildren()) {
-      addNewWarning("msg.jsdoc.typetransformation.missing.param",
-          "map function", mapFunction.getChildAtIndex(1));
+    int mapFnParamCount = getFunctionParamCount(mapFn);
+    if (mapFnParamCount < 1) {
+      warnMissingParam("map function", mapFn);
+      warnInvalidInside(Keywords.MAPUNION.name, getCallArgument(expr, 1));
       return false;
     }
-    if (!mapFunction.getChildAtIndex(1).hasOneChild()) {
-      addNewWarning("msg.jsdoc.typetransformation.extra.param",
-          "map function", mapFunction.getChildAtIndex(1));
-      return false;
-    }
-    // The parameter of the map function must be valid
-    Node mapFunctionParam = mapFunction.getChildAtIndex(1).getFirstChild();
-    if (!validTTLTypeVar(mapFunctionParam)) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.inside",
-          "map function", mapFunctionParam);
+    if (mapFnParamCount > 1) {
+      warnExtraParam("map function", mapFn);
+      warnInvalidInside(Keywords.MAPUNION.name, getCallArgument(expr, 1));
       return false;
     }
     // The body must be a valid type transformation expression
-    Node mapFunctionBody = mapFunction.getChildAtIndex(2);
-    if (!validTypeTransformationExpression(mapFunctionBody)) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.inside",
-          "map function body", mapFunctionBody);
+    Node mapFnBody = getFunctionBody(mapFn);
+    if (!validTypeTransformationExpression(mapFnBody)) {
+      warnInvalidInside("map function body", mapFnBody);
       return false;
     }
     return true;
   }
 
   /**
-   * Checks the structure of the AST of a type transformation expression
-   * in @template T as TTL-Exp.
+   * A maprecord type transformation expression must be of the form
+   * maprecord(TTLExp, (typevar, typevar) => TTLExp).
    */
-  private boolean validTypeTransformationExpression(Node expression) {
-    // Type transformation expressions are either NAME for type variables
-    // or function CALL for the other expressions
-    if (!expression.isName() && !expression.isCall()) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.expression",
-          "type transformation", expression);
+  private boolean validMaprecordExpression(Node expr) {
+    // The expression must have four children:
+    // - The maprecord keyword
+    // - A type expression
+    // - A map function
+    if (!checkParameterCount(expr, Keywords.MAPRECORD)) {
       return false;
     }
-    // If the expression is a type variable it must be valid
-    if (expression.isName()) {
-      return validTTLTypeVar(expression);
-    }
-    // If it is a CALL we can safely move one level down
-    Node operation = expression.getFirstChild();
-    // Check for valid operations
-    if (!TYPE_CONSTRUCTORS.contains(operation.getString())
-        && !OPERATIONS.contains(operation.getString())) {
-      addNewWarning("msg.jsdoc.typetransformation.invalid.expression",
-          "type transformation", operation);
+    // The second child must be a valid expression
+    if (!validTypeTransformationExpression(getCallArgument(expr, 0))) {
+      warnInvalidInside(Keywords.MAPRECORD.name, getCallArgument(expr, 0));
       return false;
     }
-    // Check the rest of the expression depending on the operation
-    if (TYPE_CONSTRUCTORS.contains(operation.getString())) {
-      return validTTLTypeExpression(expression);
+    // The third child must be a function
+    if (!getCallArgument(expr, 1).isFunction()) {
+      warnInvalid("map function", getCallArgument(expr, 1));
+      warnInvalidInside(Keywords.MAPRECORD.name, getCallArgument(expr, 1));
+      return false;
     }
-    if (operation.getString().equals(COND_KEYWORD)) {
-      return validTTLCondionalExpression(expression);
+    Node mapFn = getCallArgument(expr, 1);
+    // The map function must have exactly two parameters
+    int mapFnParamCount = getFunctionParamCount(mapFn);
+    if (mapFnParamCount < 2) {
+      warnMissingParam("map function", mapFn);
+      warnInvalidInside(Keywords.MAPRECORD.name, getCallArgument(expr, 1));
+      return false;
     }
-    if (operation.getString().equals(MAPUNION_KEYWORD)) {
-      return validTTLMapunionExpression(expression);
+    if (mapFnParamCount > 2) {
+      warnExtraParam("map function", mapFn);
+      warnInvalidInside(Keywords.MAPRECORD.name, getCallArgument(expr, 1));
+      return false;
     }
-    throw new IllegalStateException("Invalid type transformation expression");
+    // The body must be a valid type transformation expression
+    Node mapFnBody = getFunctionBody(mapFn);
+    if (!validTypeTransformationExpression(mapFnBody)) {
+      warnInvalidInside("map function body", mapFnBody);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * A typeOfVar expression must be of the form typeOfVar('name')
+   */
+  private boolean validTypeOfVarExpression(Node expr) {
+ // The expression must have two children:
+    // - The typeOfVar keyword
+    // - A string
+    if (!checkParameterCount(expr, Keywords.TYPEOFVAR)) {
+      return false;
+    }
+    if (!getCallArgument(expr, 0).isString()) {
+      warnInvalid("name", expr);
+      warnInvalidInside(Keywords.TYPEOFVAR.name, expr);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * A typeOfVar expression must be of the form instanceOf('name')
+   */
+  private boolean validInstanceOfExpression(Node expr) {
+    // The expression must have two children:
+    // - The instanceOf keyword
+    // - A string
+    if (!checkParameterCount(expr, Keywords.INSTANCEOF)) {
+      return false;
+    }
+    if (!validTypeTransformationExpression(getCallArgument(expr, 0))) {
+      warnInvalidInside(Keywords.INSTANCEOF.name, expr);
+      return false;
+    }
+    return true;
+  }
+
+  private boolean validPrintTypeExpression(Node expr) {
+    // The expression must have three children. The printType keyword, a
+    // message and a type transformation expression
+    if (!checkParameterCount(expr, Keywords.PRINTTYPE)) {
+      return false;
+    }
+    if (!getCallArgument(expr, 0).isString()) {
+      warnInvalid("message", expr);
+      warnInvalidInside(Keywords.PRINTTYPE.name, expr);
+      return false;
+    }
+    if (!validTypeTransformationExpression(getCallArgument(expr, 1))) {
+      warnInvalidInside(Keywords.PRINTTYPE.name, expr);
+      return false;
+    }
+    return true;
+  }
+
+  private boolean validPropTypeExpression(Node expr) {
+    // The expression must have three children. The propType keyword, a
+    // a string and a type transformation expression
+    if (!checkParameterCount(expr, Keywords.PROPTYPE)) {
+      return false;
+    }
+    if (!getCallArgument(expr, 0).isString()) {
+      warnInvalid("property name", expr);
+      warnInvalidInside(Keywords.PROPTYPE.name, expr);
+      return false;
+    }
+    if (!validTypeTransformationExpression(getCallArgument(expr, 1))) {
+      warnInvalidInside(Keywords.PROPTYPE.name, expr);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * An operation expression is a cond or a mapunion
+   */
+  private boolean validOperationExpression(Node expr) {
+    String name = getCallName(expr);
+    Keywords keyword = nameToKeyword(name);
+    switch (keyword) {
+      case COND:
+        return validConditionalExpression(expr);
+      case MAPUNION:
+        return validMapunionExpression(expr);
+      case MAPRECORD:
+        return validMaprecordExpression(expr);
+      case TYPEOFVAR:
+        return validTypeOfVarExpression(expr);
+      case INSTANCEOF:
+        return validInstanceOfExpression(expr);
+      case PRINTTYPE:
+        return validPrintTypeExpression(expr);
+      case PROPTYPE:
+        return validPropTypeExpression(expr);
+      default:
+        throw new IllegalStateException("Invalid type transformation operation");
+    }
+  }
+
+  /**
+   * Checks the structure of the AST of a type transformation expression
+   * in @template T := TTLExp =:
+   */
+  private boolean validTypeTransformationExpression(Node expr) {
+    if (!isValidExpression(expr)) {
+      warnInvalidExpression("type transformation", expr);
+      return false;
+    }
+    if (isTypeVar(expr) || isTypeName(expr)) {
+      return true;
+    }
+    // Check for valid keyword
+    String name = getCallName(expr);
+    if (!isValidKeyword(name)) {
+      warnInvalidExpression("type transformation", expr);
+      return false;
+    }
+    Keywords keyword = nameToKeyword(name);
+    // Check the rest of the expression depending on the kind
+    switch (keyword.kind) {
+      case TYPE_CONSTRUCTOR:
+        return validTypeExpression(expr);
+      case OPERATION:
+        return validOperationExpression(expr);
+      default:
+        throw new IllegalStateException("Invalid type transformation expression");
+    }
   }
 }

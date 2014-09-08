@@ -59,8 +59,14 @@ public class ParseTree {
   public ComprehensionIfTree asComprehensionIf() { return (ComprehensionIfTree) this; }
   public ComprehensionForTree asComprehensionFor() { return (ComprehensionForTree) this; }
   public ComprehensionTree asComprehension() { return (ComprehensionTree) this; }
-  public ComputedPropertyAssignmentTree asComputedProperty() {
-    return (ComputedPropertyAssignmentTree) this; }
+  public ComputedPropertyDefinitionTree asComputedPropertyDefinition() {
+    return (ComputedPropertyDefinitionTree) this; }
+  public ComputedPropertyGetterTree asComputedPropertyGetter() {
+    return (ComputedPropertyGetterTree) this; }
+  public ComputedPropertyMethodTree asComputedPropertyMethod() {
+    return (ComputedPropertyMethodTree) this; }
+  public ComputedPropertySetterTree asComputedPropertySetter() {
+    return (ComputedPropertySetterTree) this; }
   public ConditionalExpressionTree asConditionalExpression() {
     return (ConditionalExpressionTree) this; }
   public ContinueStatementTree asContinueStatement() { return (ContinueStatementTree) this; }
@@ -97,7 +103,6 @@ public class ParseTree {
   public ObjectLiteralExpressionTree asObjectLiteralExpression() {
     return (ObjectLiteralExpressionTree) this; }
   public ObjectPatternTree asObjectPattern() { return (ObjectPatternTree) this; }
-  public ObjectPatternFieldTree asObjectPatternField() { return (ObjectPatternFieldTree) this; }
   public ParenExpressionTree asParenExpression() { return (ParenExpressionTree) this; }
   public PostfixExpressionTree asPostfixExpression() { return (PostfixExpressionTree) this; }
   public ProgramTree asProgram() { return (ProgramTree) this; }

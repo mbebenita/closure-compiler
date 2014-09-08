@@ -1,5 +1,5 @@
 /*
- * Copyright 2011 The Closure Compiler Authors.
+ * Copyright 2014 The Closure Compiler Authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,18 +16,19 @@
 
 package com.google.javascript.jscomp.parsing.parser.trees;
 
-import com.google.javascript.jscomp.parsing.parser.IdentifierToken;
 import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
 
-public class ObjectPatternFieldTree extends ParseTree {
-  public final IdentifierToken identifier;
-  public final ParseTree element;  // optional; may be null
+public class ComputedPropertyGetterTree extends ParseTree {
+  public final ParseTree property;
+  public final boolean isStatic;
+  public final BlockTree body;
 
-  public ObjectPatternFieldTree(SourceRange location,
-                                IdentifierToken identifier,
-                                ParseTree element) {
-    super(ParseTreeType.OBJECT_PATTERN_FIELD, location);
-    this.identifier = identifier;
-    this.element = element;
+  public ComputedPropertyGetterTree(
+      SourceRange location, ParseTree property, boolean isStatic, BlockTree body) {
+    super(ParseTreeType.COMPUTED_PROPERTY_GETTER, location);
+
+    this.property = property;
+    this.isStatic = isStatic;
+    this.body = body;
   }
 }

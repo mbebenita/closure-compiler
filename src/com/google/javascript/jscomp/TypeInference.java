@@ -28,8 +28,8 @@ import static com.google.javascript.rhino.jstype.JSTypeNative.UNKNOWN_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.VOID_TYPE;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -57,9 +57,11 @@ import com.google.javascript.rhino.jstype.TemplateTypeMapReplacer;
 import com.google.javascript.rhino.jstype.UnionType;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 
 /**
@@ -1293,6 +1295,55 @@ class TypeInference
   }
 
   /**
+   * Build the type environment where type transformations will be evaluated.
+   * It only considers the template type variables that do not have a type
+   * transformation.
+   */
+  private Map<String, JSType> buildTypeVariables(
+      Map<TemplateType, JSType> inferredTypes) {
+    Map<String, JSType> typeVars = new HashMap<String, JSType>();
+    for (Entry<TemplateType, JSType> e : inferredTypes.entrySet()) {
+      // Only add the template type that do not have a type transformation
+      if (!e.getKey().isTypeTransformation()) {
+        typeVars.put(e.getKey().getReferenceName(), e.getValue());
+      }
+    }
+    return typeVars;
+  }
+
+  /**
+   * This function will evaluate the type transformations associated to the
+   * template types
+   */
+  private Map<TemplateType, JSType> evaluateTypeTransformations(
+      ImmutableList<TemplateType> templateTypes,
+      Map<TemplateType, JSType> inferredTypes) {
+
+    Map<String, JSType> typeVars = null;
+    Map<TemplateType, JSType> result = null;
+    TypeTransformation ttlObj = null;
+
+    for (TemplateType type : templateTypes) {
+      if (type.isTypeTransformation()) {
+        // Lazy initialization when the first type transformation is found
+        if (ttlObj == null) {
+          ttlObj = new TypeTransformation(compiler, syntacticScope);
+          typeVars = buildTypeVariables(inferredTypes);
+          result = new HashMap<TemplateType, JSType>();
+        }
+        // Evaluate the type transformation expression using the current
+        // known types for the template type variables
+        JSType transformedType = ttlObj.eval(type.getTypeTransformation(),
+                ImmutableMap.<String, JSType>copyOf(typeVars));
+        result.put(type, transformedType);
+        // Add the transformed type to the type variables
+        typeVars.put(type.getReferenceName(), transformedType);
+      }
+    }
+    return result;
+  }
+
+  /**
    * For functions with function(this: T, ...) and T as parameters, type
    * inference will set the type of this on a function literal argument to the
    * the actual type of T.
@@ -1306,15 +1357,23 @@ class TypeInference
     }
 
     // Try to infer the template types
-    Map<TemplateType, JSType> inferred = Maps.filterKeys(
-        inferTemplateTypesFromParameters(fnType, n),
-        new Predicate<TemplateType>() {
+    Map<TemplateType, JSType> rawInferrence = inferTemplateTypesFromParameters(
+        fnType, n);
+    Map<TemplateType, JSType> inferred = Maps.newIdentityHashMap();
+    for (TemplateType key : keys) {
+      JSType type = rawInferrence.get(key);
+      if (type == null) {
+        type = unknownType;
+      }
+      inferred.put(key, type);
+    }
 
-          @Override
-          public boolean apply(TemplateType key) {
-            return keys.contains(key);
-          }}
-        );
+    // Try to infer the template types using the type transformations
+    Map<TemplateType, JSType> typeTransformations =
+        evaluateTypeTransformations(keys, inferred);
+    if (typeTransformations != null) {
+      inferred.putAll(typeTransformations);
+    }
 
     // Replace all template types. If we couldn't find a replacement, we
     // replace it with UNKNOWN.

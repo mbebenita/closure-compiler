@@ -52,12 +52,6 @@ public class ParserRunner {
 
   public static Config createConfig(boolean isIdeMode,
                                     LanguageMode languageMode,
-                                    boolean acceptConstKeyword) {
-    return createConfig(isIdeMode, languageMode, acceptConstKeyword, null);
-  }
-
-  public static Config createConfig(boolean isIdeMode,
-                                    LanguageMode languageMode,
                                     boolean acceptConstKeyword,
                                     Set<String> extraAnnotationNames) {
     initResourceConfig();
@@ -184,7 +178,7 @@ public class ParserRunner {
       case ECMASCRIPT6:
         return Mode.ES6;
       case ECMASCRIPT6_STRICT:
-        return Mode.ES5_STRICT;
+        return Mode.ES6_STRICT;
       default:
         throw new IllegalStateException("unexpected");
     }
