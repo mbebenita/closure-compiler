@@ -208,16 +208,12 @@ public enum CompilationLevel {
     options.removeClosureAsserts = true;
     options.reserveRawExports = true;
     options.setRenamingPolicy(
-            VariableRenamingPolicy.ALL, PropertyRenamingPolicy.ALL_UNQUOTED);
+            VariableRenamingPolicy.LOCAL, PropertyRenamingPolicy.OFF);
     options.shadowVariables = true;
-    options.removeUnusedPrototypeProperties = true;
-    options.removeUnusedPrototypePropertiesInExterns = true;
-    options.removeUnusedClassProperties = true;
     options.collapseAnonymousFunctions = true;
     options.collapseProperties = true;
     options.checkGlobalThisLevel = CheckLevel.WARNING;
     options.rewriteFunctionExpressions = false;
-    options.smartNameRemoval = true;
     options.inlineConstantVars = true;
     options.setInlineFunctions(Reach.ALL);
     options.setAssumeClosuresOnlyCaptureReferences(false);
@@ -227,7 +223,7 @@ public enum CompilationLevel {
     options.computeFunctionSideEffects = true;
 
     // Remove unused vars also removes unused functions.
-    options.setRemoveUnusedVariables(Reach.ALL);
+    options.setRemoveUnusedVariables(Reach.LOCAL_ONLY);
 
     // Move code around based on the defined modules.
     options.crossModuleCodeMotion = true;
@@ -237,7 +233,13 @@ public enum CompilationLevel {
     options.devirtualizePrototypeMethods = true;
     options.optimizeParameters = true;
     options.optimizeReturns = true;
-    options.optimizeCalls = true;
+
+    // The following optimizations break Shumway builds and need further investigation:
+    //   options.removeUnusedPrototypeProperties = true;
+    //   options.removeUnusedPrototypePropertiesInExterns = true;
+    //   options.removeUnusedClassProperties = true;
+    //   options.smartNameRemoval = true;
+    //   options.optimizeCalls = true;
   }
 
   /**
