@@ -21,6 +21,80 @@
  * @externs
  */
 
+// TODO(johnlenz): symbol should be a primitive type.
+/** @typedef {?} */
+var symbol;
+
+/**
+ * @param {string} description
+ * @return {symbol}
+ */
+function Symbol(description) {}
+
+/** @const {symbol} */
+Symbol.iterator;
+
+
+/**
+ * @interface
+ * @template VALUE
+ */
+function Iterable() {}
+
+// TODO(johnlenz): remove this when the compiler understands "symbol" natively
+/**
+ * @return {Iterator.<VALUE>}
+ * @suppress {externsValidation}
+ */
+Iterable.prototype[Symbol.iterator] = function() {};
+
+
+
+// TODO(johnlenz): Iterator should be a templated record type.
+/**
+ * @interface
+ * @template VALUE
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/The_Iterator_protocol
+ */
+function Iterator() {}
+
+/**
+ * @return {{value:VALUE, done:boolean}}
+ */
+Iterator.prototype.next;
+
+
+/**
+ * @constructor
+ * @see http://people.mozilla.org/~jorendorff/es6-draft.html#sec-generator-objects
+ * @implements {Iterator<VALUE>}
+ * @template VALUE
+ */
+var Generator = function() {};
+
+/**
+ * @param {?=} opt_value
+ * @return {{value:VALUE, done:boolean}}
+ * @override
+ */
+Generator.prototype.next = function(opt_value) {};
+
+/**
+ * @param {VALUE} value
+ * @return {{value:VALUE, done:boolean}}
+ */
+Generator.prototype.return = function(value) {};
+
+/**
+ * @param {?} exception
+ * @return {{value:VALUE, done:boolean}}
+ */
+Generator.prototype.throw = function(exception) {};
+
+
+// TODO(johnlenz): Array should be Iterable.
+
+
 
 /**
  * @param {number} value
@@ -130,6 +204,19 @@ Math.hypot = function(value1, var_args) {};
  * @see http://people.mozilla.org/~jorendorff/es6-draft.html#sec-object.is
  */
 Object.is;
+
+
+/**
+ * Returns a language-sensitive string representation of this number.
+ * @param {(string|!Array<string>)=} opt_locales
+ * @param {Object=} opt_options
+ * @return {string}
+ * @nosideeffects
+ * @see https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Number/toLocaleString
+ * @see http://www.ecma-international.org/ecma-402/1.0/#sec-13.2.1
+ * @override
+ */
+Number.prototype.toLocaleString = function(opt_locales, opt_options) {};
 
 
 /**
@@ -695,9 +782,9 @@ var IThenable = function() {};
 
 
 /**
- * @param {(function(TYPE):
+ * @param {?(function(TYPE):
  *             (RESULT|IThenable.<RESULT>|Thenable))=} opt_onFulfilled
- * @param {(function(*): *)=} opt_onRejected
+ * @param {?(function(*): *)=} opt_onRejected
  * @return {!IThenable.<RESULT>}
  * @template RESULT
  */
@@ -705,10 +792,10 @@ IThenable.prototype.then = function(opt_onFulfilled, opt_onRejected) {};
 
 
 /**
- * @see http://dom.spec.whatwg.org/#futures
+ * @see https://people.mozilla.org/~jorendorff/es6-draft.html#sec-promise-objects
  * @param {function(
- *             function((TYPE|IThenable.<TYPE>|Thenable)),
- *             function(*))} resolver
+ *             function((TYPE|IThenable.<TYPE>|Thenable|null)=),
+ *             function(*=))} resolver
  * @constructor
  * @implements {IThenable.<TYPE>}
  * @template TYPE
@@ -726,31 +813,33 @@ Promise.resolve = function(opt_value) {};
 
 /**
  * @param {*=} opt_error
- * @return {!Promise}
+ * @return {!Promise.<?>}
  */
 Promise.reject = function(opt_error) {};
 
 
 /**
+ * @template T
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise
- * @param {!Array} iterable
- * @return {!Promise}
+ * @param {!Array<T|!Promise<T>>} iterable
+ * @return {!Promise<!Array<T>>}
  */
 Promise.all = function(iterable) {};
 
 
 /**
+ * @template T
  * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise
- * @param {!Array} iterable
- * @return {!Promise}
+ * @param {!Array.<T>} iterable
+ * @return {!Promise.<T>}
  */
 Promise.race = function(iterable) {};
 
 
 /**
- * @param {(function(TYPE):
+ * @param {?(function(TYPE):
  *             (RESULT|IThenable.<RESULT>|Thenable))=} opt_onFulfilled
- * @param {(function(*): *)=} opt_onRejected
+ * @param {?(function(*): *)=} opt_onRejected
  * @return {!Promise.<RESULT>}
  * @template RESULT
  * @override
@@ -759,7 +848,8 @@ Promise.prototype.then = function(opt_onFulfilled, opt_onRejected) {};
 
 
 /**
- * @param {function(*): *} onRejected
- * @return {!Promise}
+ * @param {function(*): RESULT} onRejected
+ * @return {!Promise.<RESULT>}
+ * @template RESULT
  */
 Promise.prototype.catch = function(onRejected) {};

@@ -31,17 +31,6 @@ var iframes = /** @type {!iframes.Iframes} */ ({});
 
 
 /**
- * The namespace for most of the APIs.
- *
- * This has "|undefined" so that JSCompiler won't optimize out existence checks
- * for win.iframes.
- *
- * @type {!iframes.Iframes|undefined}
- */
-Window.prototype.iframes;
-
-
-/**
  * The type for the Iframes API.
  * @constructor
  */
@@ -205,7 +194,7 @@ iframes.Iframe.prototype.removeCallback = function(type, callback) {};
  * Allows a global function for all iframes.
  *
  * @param {string} name The name of the method for the iframes.
- * @param {?function(...[*]) : *=} opt_func A optional function, by default
+ * @param {?function(...*) : *=} opt_func A optional function, by default
  *     window[name].
  */
 iframes.Iframes.prototype.allow = function(name, opt_func) {};
@@ -223,12 +212,12 @@ iframes.Iframes.prototype.allow = function(name, opt_func) {};
  *      element: the element which the iframe would be opened into.
  * @param {Object} params The data to be passed to the iframe.
  *     All properties should be string.
- * @param {Object|function(...[*]) : *=} opt_methods: Functions to passed to
+ * @param {Object|function(...*) : *=} opt_methods: Functions to passed to
  *     the iframe. All properties should be functions. If no 'callback'
  *     argument is provided and the argument in this position is a function
  *     instead of an object, it is considered as the next parameter
  *     'callback', not this parameter 'methods'.
- * @param {?function(...[*]) : *=} opt_callback: a callback function called
+ * @param {?function(...*) : *=} opt_callback: a callback function called
  *     when the iframe is closed.
  *
  * @return {iframes.Iframe} The opened iframe.
@@ -240,7 +229,7 @@ iframes.Iframes.prototype.open = function(
  * Closes this iframe.
  *
  * @param {*=} opt_params The parameters to pass back to the parent iframe.
- * @param {?function(...[*]) : *=} opt_callback The callback function after
+ * @param {?function(...*) : *=} opt_callback The callback function after
  *     parent processed the event.
  */
 iframes.Iframes.prototype.close = function(opt_params, opt_callback) {};
@@ -251,12 +240,12 @@ iframes.Iframes.prototype.close = function(opt_params, opt_callback) {};
  * it should be called the page is drawn and initial data loaded.
  *
  * @param {Object=} opt_params The parameters to pass back to the parent iframe.
- * @param {Object|function(...[*]) : *=} opt_methods: Functions to passed to
+ * @param {Object|function(...*) : *=} opt_methods: Functions to passed to
  *     the iframe. All properties should be functions. If no 'callback'
  *     argument is provided and the argument in this position is a function
  *     instead of an object, it is considered as the next parameter
  *     'callback', not this parameter 'methods'.
- * @param {?function(...[*]) : *=} opt_callback The callback function after
+ * @param {?function(...*) : *=} opt_callback The callback function after
  *     parent processed the event.
  */
 iframes.Iframes.prototype.ready = function(
@@ -319,13 +308,6 @@ iframes.Iframes.prototype.setBootstrapHint = function(hint) {};
  * @deprecated
  */
 iframes.Iframes.prototype.setVersionOverride = function(version) {};
-
-/**
- * Inside an iframe, the properties of the iframer object are the data and
- * functions provided in iframes.open.
- * @type {!Object|undefined}
- */
-Window.prototype.iframer = {};
 
 /**
  * Inside an iframe, the properties of the iframer object are the data and

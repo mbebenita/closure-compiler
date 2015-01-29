@@ -47,6 +47,7 @@ public class CheckAccessControlsTest extends CompilerTestCase {
   public CheckAccessControlsTest() {
     super(CompilerTypeTestCase.DEFAULT_EXTERNS);
     parseTypeInfo = true;
+    enableClosurePass();
     enableTypeCheck(CheckLevel.WARNING);
   }
 
@@ -525,6 +526,14 @@ public class CheckAccessControlsTest extends CompilerTestCase {
     }, null, BAD_PRIVATE_PROPERTY_ACCESS);
   }
 
+  public void testNoPrivateAccessForNamespaces() {
+    test(new String[]{
+      "var foo = {};\n" +
+          "/** @private */ foo.bar_ = function() {};",
+      "foo.bar_();"
+    }, null, BAD_PRIVATE_PROPERTY_ACCESS);
+  }
+
   public void testProtectedAccessForProperties1() {
     testSame(new String[] {
       "/** @constructor */ function Foo() {}" +
@@ -612,6 +621,19 @@ public class CheckAccessControlsTest extends CompilerTestCase {
       "var SubFoo = function() {};" +
       "SubFoo.prototype = { set moo(val) { this.x = this.bar(); }};"
     });
+  }
+
+  public void testProtectedAccessForProperties10() {
+    testSame(ImmutableList.of(
+        SourceFile.fromCode("foo.js",
+            "/** @constructor */ var Foo = function() {};" +
+            "/** @protected */ Foo.prototype.bar = function() {};"),
+        SourceFile.fromCode("sub_foo.js",
+            "/** @constructor @extends {Foo} */" +
+            "var SubFoo = function() {};" +
+            "(function() {" +
+              "SubFoo.prototype.baz = function() { this.bar(); }" +
+            "})();")));
   }
 
   public void testNoProtectedAccessForProperties1() {
@@ -813,6 +835,18 @@ public class CheckAccessControlsTest extends CompilerTestCase {
     null, BAD_PACKAGE_PROPERTY_ACCESS);
   }
 
+  public void testNoPackagePrivateAccessForNamespaces() {
+    test(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo/bar.js",
+            "var foo = {};\n" +
+            "/** @package */ foo.bar = function() {};"),
+        SourceFile.fromCode(
+            "baz/quux.js",
+            "foo.bar();")),
+    null, BAD_PACKAGE_PROPERTY_ACCESS);
+  }
+
   public void testNoPackagePrivateAccessForProperties5() {
     test(ImmutableList.of(
         SourceFile.fromCode(
@@ -875,6 +909,16 @@ public class CheckAccessControlsTest extends CompilerTestCase {
           "/** @override */\n" +
           "Bar.prototype.privateMethod_ = function() {};\n",
         null, BAD_PROPERTY_OVERRIDE_IN_FILE_WITH_FILEOVERVIEW_VISIBILITY);
+  }
+
+  public void testNamespacedFunctionDoesNotNeedVisibilityRedeclInFileWithFileOverviewVisibility() {
+    testSame(
+        "/**\n" +
+        " * @fileoverview\n" +
+        " * @package\n" +
+        " */\n" +
+        "/** @return {string} */\n" +
+        "foo.bar = function() {};");
   }
 
   public void testOverrideWithoutVisibilityRedeclInFileWithFileOverviewVisibilityNotAllowed_TwoFiles() {
@@ -1014,6 +1058,110 @@ public class CheckAccessControlsTest extends CompilerTestCase {
             "foo.bar();")));
   }
 
+  public void testFileoverviewVisibilityDoesNotApplyToGoogProvidedNamespace1() {
+    // Don't compare the generated JsDoc. It includes annotations we're not interested in,
+    // like @inherited.
+    compareJsDoc = false;
+
+    test(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo.js",
+            "goog.provide('foo');"),
+        SourceFile.fromCode(
+            "foo/bar.js",
+            "/**\n" +
+            "  * @fileoverview\n" +
+            "  * @package\n" +
+            "  */\n" +
+            "goog.provide('foo.bar');"),
+        SourceFile.fromCode(
+            "bar.js",
+            "goog.require('foo')")),
+        ImmutableList.of(
+            SourceFile.fromCode("foo.js", "var foo={};"),
+            SourceFile.fromCode("foo/bar.js", "foo.bar={};"),
+            SourceFile.fromCode("bar.js", "")),
+        null, null);
+
+    compareJsDoc = true;
+  }
+
+  public void testFileoverviewVisibilityDoesNotApplyToGoogProvidedNamespace2() {
+    // Don't compare the generated JsDoc. It includes annotations we're not interested in,
+    // like @inherited.
+    compareJsDoc = false;
+
+    test(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo/bar.js",
+            "/**\n" +
+            "  * @fileoverview\n" +
+            "  * @package\n" +
+            "  */\n" +
+            "goog.provide('foo.bar');"),
+        SourceFile.fromCode(
+            "foo.js",
+            "goog.provide('foo');"),
+        SourceFile.fromCode(
+            "bar.js",
+            "goog.require('foo');\n" +
+            "var x = foo;")),
+        ImmutableList.of(
+            SourceFile.fromCode("foo/bar.js", "var foo={};foo.bar={};"),
+            SourceFile.fromCode("foo.js", ""),
+            SourceFile.fromCode("bar.js", "var x=foo")),
+        null, null);
+
+    compareJsDoc = true;
+  }
+
+  public void testFileoverviewVisibilityDoesNotApplyToGoogProvidedNamespace3() {
+    // Don't compare the generated JsDoc. It includes annotations we're not interested in,
+    // like @inherited.
+    compareJsDoc = false;
+
+    test(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo/bar.js",
+            "/**\n" +
+            " * @fileoverview\n" +
+            " * @package\n" +
+            " */\n" +
+            "goog.provide('one.two');\n" +
+            "one.two.three = function(){};"),
+        SourceFile.fromCode(
+            "baz.js",
+            "goog.require('one.two');\n" +
+            "var x = one.two;")),
+        ImmutableList.of(
+            SourceFile.fromCode(
+                "foo/bar.js",
+                "var one={};one.two={};one.two.three=function(){};"),
+            SourceFile.fromCode(
+                "baz.js",
+                "var x=one.two")),
+        null, null);
+
+    compareJsDoc = true;
+  }
+
+  public void testFileoverviewVisibilityDoesNotApplyToGoogProvidedNamespace4() {
+    test(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo/bar.js",
+            "/**\n" +
+            " * @fileoverview\n" +
+            " * @package\n" +
+            " */\n" +
+            "goog.provide('one.two');\n" +
+            "one.two.three = function(){};"),
+        SourceFile.fromCode(
+            "baz.js",
+            "goog.require('one.two');\n" +
+            "var x = one.two.three();")),
+      null, BAD_PACKAGE_PROPERTY_ACCESS);
+  }
+
   public void testPublicFileOverviewVisibilityDoesNotApplyToPropertyWithExplicitPackageVisibility() {
     test(ImmutableList.of(
         SourceFile.fromCode(
@@ -1063,6 +1211,28 @@ public class CheckAccessControlsTest extends CompilerTestCase {
             "Foo.prototype.bar = function() {};\n"),
         SourceFile.fromCode(
             "baz/quux.js",
+            "var foo = new Foo();\n" +
+            "foo.bar();")),
+        null, BAD_PACKAGE_PROPERTY_ACCESS);
+  }
+
+  public void testFileOverviewVisibilityComesFromDeclarationFileNotUseFile() {
+    test(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo/bar.js",
+            "/**\n" +
+            " * @fileoverview\n" +
+            " * @package\n" +
+            " */\n" +
+            "/** @constructor */\n" +
+            "Foo = function() {};\n" +
+            "Foo.prototype.bar = function() {};\n"),
+        SourceFile.fromCode(
+            "baz/quux.js",
+            "/**\n" +
+            " * @fileoverview\n" +
+            " * @public\n" +
+            " */\n" +
             "var foo = new Foo();\n" +
             "foo.bar();")),
         null, BAD_PACKAGE_PROPERTY_ACCESS);
@@ -1321,6 +1491,18 @@ public class CheckAccessControlsTest extends CompilerTestCase {
         "var foo = new Foo();" +
         "foo.PROP = 3;",
         null , CONST_PROPERTY_REASSIGNED_VALUE);
+  }
+
+  public void testConstantProperty3a() {
+    testSame("/** @constructor */ function Foo() {}\n" +
+        "/** @type {number} */ Foo.prototype.PROP = 2;\n" +
+        "/** @suppress {duplicate|const} */ Foo.prototype.PROP = 3;\n");
+  }
+
+  public void testConstantProperty3b() {
+    testSame("/** @constructor */ function Foo() {}\n" +
+        "/** @const */ Foo.prototype.prop = 2;\n" +
+        "/** @suppress {const} */ Foo.prototype.prop = 3;\n");
   }
 
   public void testNamespaceConstantProperty1() {

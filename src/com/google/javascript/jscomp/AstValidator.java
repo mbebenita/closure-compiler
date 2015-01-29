@@ -322,22 +322,26 @@ public class AstValidator implements CompilerPass {
     validateEs6Feature("import statement", n);
     validateNodeType(Token.IMPORT, n);
     validateChildCount(n, Token.arity(Token.IMPORT));
-    if (n.getFirstChild().isEmpty()) {
-      if (n.getChildAtIndex(1).isEmpty()) { // import "mod"
-        validateString(n.getChildAtIndex(2));
-      } else {  // import {a as foo} from "mod"
-        validateImportSpecifiers(n.getChildAtIndex(1));
-        validateString(n.getChildAtIndex(2));
-      }
-    } else if (n.getFirstChild().isName()) {
+
+    if (n.getFirstChild().isName()) {
       validateName(n.getFirstChild());
-      if (n.getChildAtIndex(1).isEmpty()) { // import a from "mod"
-        validateString(n.getChildAtIndex(2));
-      } else { // import a, {b as bar} from "mod"
-        validateImportSpecifiers(n.getChildAtIndex(1));
-        validateString(n.getChildAtIndex(2));
-      }
+    } else {
+      validateNodeType(Token.EMPTY, n.getFirstChild());
     }
+
+    Node secondChild = n.getChildAtIndex(1);
+    switch (secondChild.getType()) {
+      case Token.IMPORT_SPECS:
+        validateImportSpecifiers(secondChild);
+        break;
+      case Token.IMPORT_STAR:
+        validateNonEmptyString(secondChild);
+        break;
+      default:
+        validateNodeType(Token.EMPTY, secondChild);
+    }
+
+    validateString(n.getChildAtIndex(2));
   }
 
   private void validateImportSpecifiers(Node n) {
@@ -709,17 +713,9 @@ public class AstValidator implements CompilerPass {
     } else if (n.isDefaultValue()) {
       validateDefaultValue(type, n);
     } else if (n.isComputedProp()) {
-      validateObjectLitComputedPropKey(n);
+      validateObjectPatternComputedPropKey(type, n);
     } else {
       violation("Invalid child for " + Token.name(type) + " node", n);
-    }
-  }
-
-  private void validateDestructuringPattern(int type, Node n) {
-    if (n.isArrayPattern()) {
-      validateArrayPattern(type, n);
-    } else {
-      validateObjectPattern(type, n);
     }
   }
 
@@ -732,6 +728,8 @@ public class AstValidator implements CompilerPass {
         validateExpression(c);
       } else if (c.isRest()) {
         validateRest(c);
+      } else if (c.isEmpty()) {
+        validateChildless(c);
       } else {
         // The members of the array pattern can be simple names,
         // or nested array/object patterns, e.g. "var [a,[b,c]]=[1,[2,3]];"
@@ -1118,6 +1116,17 @@ public class AstValidator implements CompilerPass {
     validateChildCount(n, Token.arity(Token.COMPUTED_PROP));
     validateExpression(n.getFirstChild());
     validateExpression(n.getLastChild());
+  }
+
+  private void validateObjectPatternComputedPropKey(int type, Node n) {
+    validateNodeType(Token.COMPUTED_PROP, n);
+    validateChildCount(n, Token.arity(Token.COMPUTED_PROP));
+    validateExpression(n.getFirstChild());
+    if (n.getLastChild().isDefaultValue()) {
+      validateDefaultValue(type, n.getLastChild());
+    } else {
+      validateExpression(n.getLastChild());
+    }
   }
 
   private void validateComputedPropClassMethod(Node n) {

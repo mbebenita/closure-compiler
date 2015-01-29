@@ -18,6 +18,7 @@ package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
@@ -30,16 +31,17 @@ import com.google.javascript.jscomp.GatherSideEffectSubexpressionsCallback.SideE
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.NodeTraversal.Callback;
 import com.google.javascript.jscomp.Scope.Var;
-import com.google.javascript.jscomp.graph.DiGraph;
 import com.google.javascript.jscomp.graph.DiGraph.DiGraphEdge;
-import com.google.javascript.jscomp.graph.FixedPointGraphTraversal;
-import com.google.javascript.jscomp.graph.FixedPointGraphTraversal.EdgeCallback;
+import com.google.javascript.jscomp.graph.DiGraph.DiGraphNode;
 import com.google.javascript.jscomp.graph.LinkedDirectedGraph;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
+import java.util.ArrayDeque;
 import java.util.Collections;
+import java.util.Deque;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -84,7 +86,7 @@ final class NameAnalyzer implements CompilerPass {
   private final Map<String, JsName> allNames = Maps.newTreeMap();
 
   /** Reference dependency graph */
-  private DiGraph<JsName, RefType> referenceGraph =
+  private LinkedDirectedGraph<JsName, RefType> referenceGraph =
       LinkedDirectedGraph.createWithoutAnnotations();
 
   /**
@@ -162,24 +164,6 @@ final class NameAnalyzer implements CompilerPass {
   private static enum RefType {
     REGULAR,
     INHERITANCE,
-  }
-
-  /**
-   * Callback that propagates reference information.
-   */
-  private static class ReferencePropagationCallback
-      implements EdgeCallback<JsName, RefType> {
-    @Override
-    public boolean traverseEdge(JsName from,
-                                RefType callSite,
-                                JsName to) {
-      if (from.referenced && !to.referenced) {
-        to.referenced = true;
-        return true;
-      } else {
-        return false;
-      }
-    }
   }
 
   /**
@@ -283,13 +267,6 @@ final class NameAnalyzer implements CompilerPass {
     JsName name;
 
     /**
-     * Top GETPROP or NAME or STRING [objlit key] node defining the name of
-     * this node
-     */
-    @SuppressWarnings("unused")
-    Node node;
-
-    /**
      * Parent node of the name access
      * (ASSIGN, VAR, FUNCTION, OBJECTLIT, or CALL)
      */
@@ -304,7 +281,6 @@ final class NameAnalyzer implements CompilerPass {
      */
     JsNameRefNode(JsName name, Node node) {
       this.name = name;
-      this.node = node;
       this.parent = node.getParent();
     }
 
@@ -1044,11 +1020,8 @@ final class NameAnalyzer implements CompilerPass {
           parent.isAssign()
           && NodeUtil.isPrototypeProperty(parent.getFirstChild());
 
-      if ((parent.isName() ||
-          parent.isAssign()) &&
-          !isPrototypePropAssignment &&
-          referring != null &&
-          scopes.get(parent).contains(referring)) {
+      if ((parent.isName() || parent.isAssign()) && !isPrototypePropAssignment && referring != null
+          && scopes.containsEntry(parent, referring)) {
         recordAlias(referringName, name);
         return true;
       }
@@ -1197,9 +1170,22 @@ final class NameAnalyzer implements CompilerPass {
 
     JsName from = getName(fromName, true);
     JsName to = getName(toName, true);
-    referenceGraph.createNode(from);
-    referenceGraph.createNode(to);
-    if (!referenceGraph.isConnectedInDirection(from, depType, to)) {
+    referenceGraph.connectIfNotConnectedInDirection(from, depType, to);
+  }
+
+  /**
+   * Records a reference from one name to another name.
+   */
+  private void recordReference(
+      DiGraphNode<JsName, RefType> from,
+      DiGraphNode<JsName, RefType> to,
+      RefType depType) {
+    if (from == to) {
+      // Don't bother recording self-references.
+      return;
+    }
+
+    if (!referenceGraph.isConnectedInDirection(from, Predicates.equalTo(depType), to)) {
       referenceGraph.connect(from, depType, to);
     }
   }
@@ -1250,7 +1236,7 @@ final class NameAnalyzer implements CompilerPass {
     sb.append("ALL NAMES<ul>\n");
     for (JsName node : allNames.values()) {
       sb.append("<li>" + nameAnchor(node.name) + "<ul>");
-      if (node.prototypeNames.size() > 0) {
+      if (!node.prototypeNames.isEmpty()) {
         sb.append("<li>PROTOTYPES: ");
         Iterator<String> protoIter = node.prototypeNames.iterator();
         while (protoIter.hasNext()) {
@@ -1264,7 +1250,7 @@ final class NameAnalyzer implements CompilerPass {
       if (referenceGraph.hasNode(node)) {
         List<DiGraphEdge<JsName, RefType>> refersTo =
             referenceGraph.getOutEdges(node);
-        if (refersTo.size() > 0) {
+        if (!refersTo.isEmpty()) {
           sb.append("<li>REFERS TO: ");
           Iterator<DiGraphEdge<JsName, RefType>> toIter = refersTo.iterator();
           while (toIter.hasNext()) {
@@ -1277,7 +1263,7 @@ final class NameAnalyzer implements CompilerPass {
 
         List<DiGraphEdge<JsName, RefType>> referencedBy =
             referenceGraph.getInEdges(node);
-        if (referencedBy.size() > 0) {
+        if (!referencedBy.isEmpty()) {
           sb.append("<li>REFERENCED BY: ");
           Iterator<DiGraphEdge<JsName, RefType>> fromIter = refersTo.iterator();
           while (fromIter.hasNext()) {
@@ -1367,14 +1353,48 @@ final class NameAnalyzer implements CompilerPass {
    * if the other aliases are also removed, so we add a connection here.
    */
   private void referenceAliases() {
-    for (Map.Entry<String, AliasSet> entry : aliases.entrySet()) {
-      JsName name = getName(entry.getKey(), false);
-      if (name.hasWrittenDescendants || name.hasInstanceOfReference) {
-        for (String alias : entry.getValue().names) {
-          recordReference(alias, entry.getKey(), RefType.REGULAR);
+
+    // Minimize the number of connections in the graph by creating a connected
+    // cluster for names that are used to modify the object and then ensure
+    // there is at least one link to the cluster from the other names (which are
+    // removalable on there own) in the AliasSet.
+
+    Set<AliasSet> sets = new HashSet<>(aliases.values());
+    for (AliasSet set : sets) {
+      DiGraphNode<JsName, RefType> first = null;
+      Set<DiGraphNode<JsName, RefType>> required = new HashSet<>();
+      for (String key : set.names) {
+        JsName name = getName(key, false);
+        if (name.hasWrittenDescendants || name.hasInstanceOfReference) {
+          DiGraphNode<JsName, RefType> node = getGraphNode(name);
+          required.add(node);
+          if (first == null) {
+            first = node;
+          }
+        }
+      }
+
+      if (!required.isEmpty()) {
+        // link the required nodes together to form a cluster so that if one
+        // is needed, all are kept.
+        for (DiGraphNode<JsName, RefType> node : required) {
+          recordReference(node, first, RefType.REGULAR);
+          recordReference(first, node, RefType.REGULAR);
+        }
+
+        // link all the other aliases to the one of the required nodes, so
+        // that if they are kept only if referenced directly, but all the
+        // required nodes are kept if any are referenced.
+        for (String key : set.names) {
+          DiGraphNode<JsName, RefType> alias = getGraphNode(getName(key, false));
+          recordReference(alias, first, RefType.REGULAR);
         }
       }
     }
+  }
+
+  private DiGraphNode<JsName, RefType> getGraphNode(JsName name) {
+    return referenceGraph.createDirectedGraphNode(name);
   }
 
   /**
@@ -1388,19 +1408,19 @@ final class NameAnalyzer implements CompilerPass {
 
     for (JsName name : allNamesCopy) {
       String curName = name.name;
-      JsName curJsName = name;
-      while (curName.indexOf('.') != -1) {
+      // Add a reference to the direct parent. It in turn will point to its parent.
+      if (curName.contains(".")) {
         String parentName = curName.substring(0, curName.lastIndexOf('.'));
         if (!globalNames.contains(parentName)) {
 
           JsName parentJsName = getName(parentName, true);
 
-          recordReference(curJsName.name, parentJsName.name, RefType.REGULAR);
-          recordReference(parentJsName.name, curJsName.name, RefType.REGULAR);
+          DiGraphNode<JsName, RefType> nameNode = getGraphNode(name);
+          DiGraphNode<JsName, RefType> parentNode = getGraphNode(parentJsName);
 
-          curJsName = parentJsName;
+          recordReference(nameNode, parentNode, RefType.REGULAR);
+          recordReference(parentNode, nameNode, RefType.REGULAR);
         }
-        curName = parentName;
       }
     }
   }
@@ -1639,9 +1659,27 @@ final class NameAnalyzer implements CompilerPass {
     JsName function = getName(FUNCTION, true);
     function.referenced = true;
 
-    // Propagate "referenced" property to a fixed point.
-    FixedPointGraphTraversal.newTraversal(new ReferencePropagationCallback())
-        .computeFixedPoint(referenceGraph);
+    propagateReference(window, function);
+  }
+
+  private void propagateReference(JsName ... names) {
+    Deque<DiGraphNode<JsName, RefType>> work = new ArrayDeque<>();
+    for (JsName name : names) {
+      work.push(referenceGraph.createDirectedGraphNode(name));
+    }
+    while (!work.isEmpty()) {
+      DiGraphNode<JsName, RefType> source = work.pop();
+      List<DiGraphEdge<JsName, RefType>> outEdges = source.getOutEdges();
+      int len = outEdges.size();
+      for (int i = 0; i < len; i++) {
+        DiGraphNode<JsName, RefType> item = outEdges.get(i).getDestination();
+        JsName destNode = item.getValue();
+        if (!destNode.referenced) {
+          destNode.referenced = true;
+          work.push(item);
+        }
+      }
+    }
   }
 
 
@@ -1668,11 +1706,10 @@ final class NameAnalyzer implements CompilerPass {
   private int countOf(TriState isClass, TriState referenced) {
     int count = 0;
     for (JsName name : allNames.values()) {
+      boolean nodeIsClass = !name.prototypeNames.isEmpty();
 
-      boolean nodeIsClass = name.prototypeNames.size() > 0;
-
-      boolean classMatch = isClass == TriState.BOTH
-          || (nodeIsClass && isClass == TriState.TRUE)
+      boolean classMatch =
+          isClass == TriState.BOTH || (nodeIsClass && isClass == TriState.TRUE)
           || (!nodeIsClass && isClass == TriState.FALSE);
 
       boolean referenceMatch = referenced == TriState.BOTH

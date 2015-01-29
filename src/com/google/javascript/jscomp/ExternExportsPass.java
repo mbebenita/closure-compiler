@@ -38,6 +38,7 @@ import java.util.TreeSet;
  * Creates an externs file containing all exported symbols and properties
  * for later consumption.
  *
+ * @author dcc@google.com (Devin Coughlin)
  */
 final class ExternExportsPass extends NodeTraversal.AbstractPostOrderCallback
     implements CompilerPass {
@@ -176,8 +177,7 @@ final class ExternExportsPass extends NodeTraversal.AbstractPostOrderCallback
           pathDefinition = NodeUtil.newVarNode(path, initializer);
         }
       } else {
-        Node qualifiedPath = NodeUtil.newQualifiedNameNode(
-            compiler.getCodingConvention(), path);
+        Node qualifiedPath = NodeUtil.newQName(compiler, path);
         if (initializer.isEmpty()) {
           pathDefinition = NodeUtil.newExpr(qualifiedPath);
         } else {

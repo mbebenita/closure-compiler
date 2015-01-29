@@ -17,9 +17,18 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.Node;
+import com.google.protobuf.Descriptors;
 import com.google.protobuf.TextFormat;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Provides a framework for checking code against a set of user configured
@@ -43,7 +52,7 @@ public final class CheckConformance extends AbstractPostOrderCallback
           "Possible violation: {0}");
 
   static final DiagnosticType INVALID_REQUIREMENT_SPEC =
-      DiagnosticType.warning(
+      DiagnosticType.error(
           "JSC_INVALID_REQUIREMENT_SPEC",
           "Invalid requirement. Reason: {0}\nRequirement spec:\n{1}");
 
@@ -87,15 +96,106 @@ public final class CheckConformance extends AbstractPostOrderCallback
   private static ImmutableList<Rule> initRules(
       AbstractCompiler compiler, ImmutableList<ConformanceConfig> configs) {
     ImmutableList.Builder<Rule> builder = ImmutableList.builder();
-    for (ConformanceConfig config : configs) {
-      for (Requirement requirement : config.getRequirementList()) {
-        Rule rule = initRule(compiler, requirement);
-        if (rule != null) {
-          builder.add(rule);
-        }
+    List<Requirement> requirements = mergeRequirements(compiler, configs);
+    for (Requirement requirement : requirements) {
+      Rule rule = initRule(compiler, requirement);
+      if (rule != null) {
+        builder.add(rule);
       }
     }
     return builder.build();
+  }
+
+  private static final Set<String> EXTENDABLE_FIELDS = ImmutableSet.of(
+      "extends", "whitelist", "whitelist_regexp", "only_apply_to", "only_apply_to_regexp");
+
+  /**
+   * Gets requirements from all configs. Merges whitelists of requirements with 'extends' equal to
+   * 'rule_id' of other rule.
+   */
+  static List<Requirement> mergeRequirements(AbstractCompiler compiler,
+      List<ConformanceConfig> configs) {
+    List<Requirement.Builder> builders = new ArrayList<>();
+    Map<String, Requirement.Builder> extendable = new HashMap<>();
+    for (ConformanceConfig config : configs) {
+      for (Requirement requirement : config.getRequirementList()) {
+        Requirement.Builder builder = requirement.toBuilder();
+        if (requirement.hasRuleId()) {
+          if (requirement.getRuleId().isEmpty()) {
+            reportInvalidRequirement(compiler, requirement, "empty rule_id");
+            continue;
+          }
+          if (extendable.containsKey(requirement.getRuleId())) {
+            reportInvalidRequirement(compiler, requirement,
+                "two requirements with the same rule_id: " + requirement.getRuleId());
+            continue;
+          }
+          extendable.put(requirement.getRuleId(), builder);
+        }
+        if (!requirement.hasExtends()) {
+          builders.add(builder);
+        }
+      }
+    }
+
+    for (ConformanceConfig config : configs) {
+      for (Requirement requirement : config.getRequirementList()) {
+        if (requirement.hasExtends()) {
+          Requirement.Builder existing = extendable.get(requirement.getExtends());
+          if (existing == null) {
+            reportInvalidRequirement(compiler, requirement,
+                "no requirement with rule_id: " + requirement.getExtends());
+            continue;
+          }
+          for (Descriptors.FieldDescriptor field : requirement.getAllFields().keySet()) {
+            if (!EXTENDABLE_FIELDS.contains(field.getName())) {
+              reportInvalidRequirement(compiler, requirement,
+                  "extending rules allow only " + EXTENDABLE_FIELDS);
+            }
+          }
+          existing.addAllWhitelist(requirement.getWhitelistList());
+          existing.addAllWhitelistRegexp(requirement.getWhitelistRegexpList());
+          existing.addAllOnlyApplyTo(requirement.getOnlyApplyToList());
+          existing.addAllOnlyApplyToRegexp(requirement.getOnlyApplyToRegexpList());
+        }
+      }
+    }
+
+    List<Requirement> requirements = new ArrayList<>(builders.size());
+    for (Requirement.Builder builder : builders) {
+      Requirement requirement = builder.build();
+      checkRequirementList(compiler, requirement, "whitelist");
+      checkRequirementList(compiler, requirement, "whitelist_regexp");
+      checkRequirementList(compiler, requirement, "only_apply_to");
+      checkRequirementList(compiler, requirement, "only_apply_to_regexp");
+      requirements.add(requirement);
+    }
+    return requirements;
+  }
+
+  private static void checkRequirementList(AbstractCompiler compiler, Requirement requirement,
+      String field) {
+    Set<String> existing = new HashSet<>();
+    for (String value : getRequirementList(requirement, field)) {
+      if (!existing.add(value)) {
+        reportInvalidRequirement(compiler, requirement, "duplicate " + field + " value: " + value);
+      }
+    }
+  }
+
+  private static List<String> getRequirementList(Requirement requirement, String field) {
+    switch (field) {
+      case "whitelist":
+        return requirement.getWhitelistList();
+      case "whitelist_regexp":
+        return requirement.getWhitelistRegexpList();
+      case "only_apply_to":
+        return requirement.getOnlyApplyToList();
+      case "only_apply_to_regexp":
+        return requirement.getOnlyApplyToRegexpList();
+      default:
+        throw new AssertionError("Unrecognized field: " + field);
+    }
   }
 
   private static Rule initRule(

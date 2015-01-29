@@ -17,8 +17,10 @@
 package com.google.javascript.jscomp;
 
 
+import static com.google.common.truth.Truth.assertThat;
+
 import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 
 import junit.framework.TestCase;
 
@@ -429,16 +431,16 @@ public class ExternExportsPassTest extends TestCase {
 
     Result libraryCompileResult = compileAndExportExterns(librarySource);
 
-    assertEquals(0, libraryCompileResult.warnings.length);
-    assertEquals(0, libraryCompileResult.errors.length);
+    assertThat(libraryCompileResult.warnings).isEmpty();
+    assertThat(libraryCompileResult.errors).isEmpty();
 
     String generatedExterns = libraryCompileResult.externExport;
 
     Result clientCompileResult = compileAndExportExterns(clientSource,
         generatedExterns);
 
-    assertEquals(0, clientCompileResult.warnings.length);
-    assertEquals(0, clientCompileResult.errors.length);
+    assertThat(clientCompileResult.warnings).isEmpty();
+    assertThat(clientCompileResult.errors).isEmpty();
   }
 
   public void testDontWarnOnExportFunctionWithUnknownReturnType() {
@@ -450,8 +452,8 @@ public class ExternExportsPassTest extends TestCase {
 
       Result libraryCompileResult = compileAndExportExterns(librarySource);
 
-      assertEquals(0, libraryCompileResult.warnings.length);
-      assertEquals(0, libraryCompileResult.errors.length);
+      assertThat(libraryCompileResult.warnings).isEmpty();
+      assertThat(libraryCompileResult.errors).isEmpty();
   }
 
   public void testDontWarnOnExportConstructorWithUnknownReturnType() {
@@ -465,8 +467,8 @@ public class ExternExportsPassTest extends TestCase {
 
       Result libraryCompileResult = compileAndExportExterns(librarySource);
 
-      assertEquals(0, libraryCompileResult.warnings.length);
-      assertEquals(0, libraryCompileResult.errors.length);
+      assertThat(libraryCompileResult.warnings).isEmpty();
+      assertThat(libraryCompileResult.errors).isEmpty();
   }
 
   public void testTypedef() {
@@ -580,8 +582,8 @@ public class ExternExportsPassTest extends TestCase {
 
       Result libraryCompileResult = compileAndExportExterns(librarySource);
 
-      assertEquals(0, libraryCompileResult.warnings.length);
-      assertEquals(0, libraryCompileResult.errors.length);
+      assertThat(libraryCompileResult.warnings).isEmpty();
+      assertThat(libraryCompileResult.errors).isEmpty();
   }
 
   private Result compileAndExportExterns(String js) {
@@ -603,22 +605,21 @@ public class ExternExportsPassTest extends TestCase {
     options.declaredGlobalExternsOnWindow = false;
 
     // Turn off IDE mode.
-    options.ideMode = false;
+    options.setIdeMode(false);
 
     /* Check types so we can make sure our exported externs have
      * type information.
      */
-    options.checkSymbols = true;
-    options.checkTypes = runCheckTypes;
+    options.setCheckSymbols(true);
+    options.setCheckTypes(runCheckTypes);
 
-    List<SourceFile> inputs = Lists.newArrayList(
-      SourceFile.fromCode("testcode",
-                            "var goog = {};" +
-                            "goog.exportSymbol = function(a, b) {}; " +
-                            "goog.exportProperty = function(a, b, c) {}; " +
-                            js));
+    List<SourceFile> inputs = ImmutableList.of(SourceFile.fromCode(
+        "testcode",
+        "var goog = {};"
+        + "goog.exportSymbol = function(a, b) {}; "
+        + "goog.exportProperty = function(a, b, c) {}; " + js));
 
-    List<SourceFile> externFiles = Lists.newArrayList(
+    List<SourceFile> externFiles = ImmutableList.of(
         SourceFile.fromCode("externs", externs));
 
     Result result = compiler.compile(externFiles, inputs, options);

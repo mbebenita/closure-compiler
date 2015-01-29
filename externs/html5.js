@@ -29,15 +29,20 @@
  * @externs
  */
 
-/*
- * JSON API.
- */
 
 /**
- * @see https://developer.mozilla.org/En/Using_native_JSON
- * @type {!JSONType}
+ * Note: In IE, the contains() method only exists on Elements, not Nodes.
+ * Therefore, it is recommended that you use the Conformance framework to
+ * prevent calling this on Nodes which are not Elements.
+ * @see https://connect.microsoft.com/IE/feedback/details/780874/node-contains-is-incorrect
+ *
+ * @param {Node} n The node to check
+ * @return {boolean} If 'n' is this Node, or is contained within this Node.
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/Node.contains
+ * @nosideeffects
  */
-Window.prototype.JSON;
+Node.prototype.contains = function(n) {};
+
 
 /**
  * @constructor
@@ -45,11 +50,6 @@ Window.prototype.JSON;
  * @extends {HTMLElement}
  */
 function HTMLCanvasElement() {}
-
-/**
- * @type {function(new:HTMLCanvasElement)}
- */
-Window.prototype.HTMLCanvasElement;
 
 /** @type {number} */
 HTMLCanvasElement.prototype.width;
@@ -699,18 +699,6 @@ function postMessage(message, opt_targetOriginOrTransfer,
     opt_targetOriginOrPortsOrTransfer) {}
 
 /**
- * The postMessage method (as defined by HTML5 spec), with support for the
- * obsolete 'ports' argument in either 2nd or 3rd position.
- * @param {*} message
- * @param {string|Array.<!MessagePort>} targetOriginOrPorts
- * @param {(string|Array.<!MessagePort>|Array.<!Transferable>)=}
- *     opt_targetOriginOrPortsOrTransfer
- * @see http://dev.w3.org/html5/postmsg/#dom-window-postmessage
- */
-Window.prototype.postMessage = function(message, targetOriginOrPorts,
-    opt_targetOriginOrPortsOrTransfer) {};
-
-/**
  * The postMessage method (as implemented in Opera).
  * @param {string} message
  */
@@ -904,7 +892,7 @@ WebWorker.prototype.postMessage = function(message) {};
 
 /**
  * Sent when the worker thread posts a message to its creator.
- * @type {?function(!MessageEvent)}
+ * @type {?function(!MessageEvent.<*>)}
  */
 WebWorker.prototype.onmessage;
 
@@ -960,16 +948,16 @@ Worker.prototype.webkitPostMessage = function(message, opt_transfer) {};
 
 /**
  * Sent when the worker thread posts a message to its creator.
- * @type {?function(!MessageEvent)}
+ * @type {?function(!MessageEvent.<*>)}
  */
-Worker.prototype.onmessage = function() {};
+Worker.prototype.onmessage;
 
 /**
  * Sent when the worker thread encounters an error.
  * TODO(tbreisacher): Should this change to function(!ErrorEvent)?
  * @type {?function(!Event)}
  */
-Worker.prototype.onerror = function() {};
+Worker.prototype.onerror;
 
 /**
  * @see http://dev.w3.org/html5/workers/
@@ -1008,7 +996,7 @@ SharedWorker.prototype.port;
  * TODO(tbreisacher): Should this change to function(!ErrorEvent)?
  * @type {?function(!Event)}
  */
-SharedWorker.prototype.onerror = function() {};
+SharedWorker.prototype.onerror;
 
 /**
  * @see http://dev.w3.org/html5/workers/
@@ -1098,9 +1086,9 @@ DedicatedWorkerGlobalScope.prototype.webkitPostMessage =
 
 /**
  * Sent when the creator posts a message to this worker.
- * @type {?function(!MessageEvent)}
+ * @type {?function(!MessageEvent.<*>)}
  */
-DedicatedWorkerGlobalScope.prototype.onmessage = function() {};
+DedicatedWorkerGlobalScope.prototype.onmessage;
 
 /**
  * @see http://dev.w3.org/html5/workers/
@@ -1116,7 +1104,7 @@ SharedWorkerGlobalScope.prototype.name;
  * Sent when a connection to this worker is opened.
  * @type {?function(!Event)}
  */
-SharedWorkerGlobalScope.prototype.onconnect = function() {};
+SharedWorkerGlobalScope.prototype.onconnect;
 
 /** @type {Element} */
 HTMLElement.prototype.contextMenu;
@@ -1221,6 +1209,12 @@ HTMLAnchorElement.prototype.search;
  * @see http://www.whatwg.org/specs/web-apps/current-work/multipage/semantics.html#hyperlink-auditing
  */
 HTMLAreaElement.prototype.ping;
+
+/**
+ * @type {string}
+ * @see http://www.w3.org/TR/html-markup/iframe.html#iframe.attrs.srcdoc
+ */
+HTMLIFrameElement.prototype.srcdoc;
 
 /** @type {string} */
 HTMLInputElement.prototype.autocomplete;
@@ -1343,6 +1337,12 @@ HTMLMediaElement.prototype.load = function() {};
  * @nosideeffects
  */
 HTMLMediaElement.prototype.canPlayType = function(type) {};
+
+/**
+ * Callback when the media is buffered and ready to play through.
+ * @type {function(!Event)}
+ */
+HTMLMediaElement.prototype.oncanplaythrough;
 
 /** @type {number} */
 HTMLMediaElement.prototype.readyState;
@@ -1666,7 +1666,8 @@ MessagePort.prototype.start = function() {};
 MessagePort.prototype.close = function() {};
 
 /**
- * @type {?function(!MessageEvent)}
+ * TODO(blickly): Change this to MessageEvent.<*> and add casts as needed
+ * @type {?function(!MessageEvent.<?>)}
  */
 MessagePort.prototype.onmessage;
 
@@ -1810,11 +1811,38 @@ DataTransfer.prototype.addElement = function(elem) {};
 MouseEvent.prototype.dataTransfer;
 
 /**
+ * @typedef {{
+ *   bubbles: (boolean|undefined),
+ *   cancelable: (boolean|undefined),
+ *   view: (Window|undefined),
+ *   detail: (number|undefined),
+ *   screenX: (number|undefined),
+ *   screenY: (number|undefined),
+ *   clientX: (number|undefined),
+ *   clientY: (number|undefined),
+ *   ctrlKey: (boolean|undefined),
+ *   shiftKey: (boolean|undefined),
+ *   altKey: (boolean|undefined),
+ *   metaKey: (boolean|undefined),
+ *   button: (number|undefined),
+ *   buttons: (number|undefined),
+ *   relatedTarget: (EventTarget|undefined),
+ *   deltaX: (number|undefined),
+ *   deltaY: (number|undefined),
+ *   deltaZ: (number|undefined),
+ *   deltaMode: (number|undefined)
+ * }}
+ */
+var WheelEventInit;
+
+/**
+ * @param {string} type
+ * @param {WheelEventInit=} opt_eventInitDict
  * @see http://www.w3.org/TR/DOM-Level-3-Events/#interface-WheelEvent
  * @constructor
  * @extends {MouseEvent}
  */
-var WheelEvent = function() {};
+var WheelEvent = function(type, opt_eventInitDict) {};
 
 /** @const {number} */
 WheelEvent.prototype.deltaX;
@@ -2042,7 +2070,8 @@ WebSocket.prototype.onopen;
 
 /**
  * An event handler called on message event.
- * @type {?function(!MessageEvent)}
+ * TODO(blickly): Change this to MessageEvent.<*> and add casts as needed
+ * @type {?function(!MessageEvent.<?>)}
  */
 WebSocket.prototype.onmessage;
 
@@ -2054,7 +2083,7 @@ WebSocket.prototype.onclose;
 
 /**
  * Transmits data using the connection.
- * @param {string|ArrayBuffer} data
+ * @param {string|ArrayBuffer|ArrayBufferView} data
  * @return {boolean}
  */
 WebSocket.prototype.send = function(data) {};
@@ -2363,7 +2392,7 @@ Window.prototype.crypto.getRandomValues = function(typedArray) {};
 HTMLFormElement.prototype.checkValidity = function() {};
 
 /** @type {boolean} */
-HTMLFormElement.prototype.novalidate;
+HTMLFormElement.prototype.noValidate;
 
 /** @constructor */
 function ValidityState() {}
@@ -2759,11 +2788,6 @@ MutationObserver.prototype.disconnect = function() {};
 /**
  * @type {function(new:MutationObserver, function(Array.<MutationRecord>))}
  */
-Window.prototype.MutationObserver;
-
-/**
- * @type {function(new:MutationObserver, function(Array.<MutationRecord>))}
- */
 Window.prototype.WebKitMutationObserver;
 
 /**
@@ -2986,3 +3010,40 @@ ErrorEvent.prototype.error;
  * @return {!HTMLDocument}
  */
 DOMImplementation.prototype.createHTMLDocument = function(opt_title) {};
+
+
+
+/**
+ * @constructor
+ * @see https://html.spec.whatwg.org/multipage/embedded-content.html#the-picture-element
+ * @extends {HTMLElement}
+ */
+function HTMLPictureElement() {}
+
+/**
+ * @constructor
+ * @see https://html.spec.whatwg.org/multipage/embedded-content.html#the-picture-element
+ * @extends {HTMLElement}
+ */
+function HTMLSourceElement() {}
+
+/** @type {string} */
+HTMLSourceElement.prototype.media;
+
+/** @type {string} */
+HTMLSourceElement.prototype.sizes;
+
+/** @type {string} */
+HTMLSourceElement.prototype.src;
+
+/** @type {string} */
+HTMLSourceElement.prototype.srcset;
+
+/** @type {string} */
+HTMLSourceElement.prototype.type;
+
+/** @type {string} */
+HTMLImageElement.prototype.sizes;
+
+/** @type {string} */
+HTMLImageElement.prototype.srcset;

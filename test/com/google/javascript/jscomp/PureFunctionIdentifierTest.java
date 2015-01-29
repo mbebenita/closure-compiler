@@ -16,6 +16,7 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.truth.Truth.assertThat;
 import static com.google.javascript.jscomp.PureFunctionIdentifier.INVALID_NO_SIDE_EFFECT_ANNOTATION;
 
 import com.google.common.collect.ImmutableList;
@@ -27,6 +28,7 @@ import java.util.List;
 /**
  * Tests for {@link PureFunctionIdentifier}
  *
+ * @author johnlenz@google.com (John Lenz)
  */
 
 public class PureFunctionIdentifierTest extends CompilerTestCase {
@@ -498,7 +500,7 @@ public class PureFunctionIdentifierTest extends CompilerTestCase {
     testSame(externs,
         "o.prototype.propWithAnnotatedStubAfter",
         TypeValidator.DUP_VAR_DECLARATION_TYPE_MISMATCH, false);
-    assertTrue(noSideEffectCalls.isEmpty());
+    assertThat(noSideEffectCalls).isEmpty();
     noSideEffectCalls.clear();
   }
 

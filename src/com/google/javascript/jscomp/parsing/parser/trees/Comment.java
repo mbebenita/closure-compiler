@@ -44,4 +44,16 @@ public class Comment {
     this.location = location;
     this.type = type;
   }
+
+  public boolean isJsDoc() {
+    return type == Type.JSDOC;
+  }
+
+  public int getAbsolutePosition() {
+    return location.start.offset;
+  }
+
+  public int getLength() {
+    return location.end.offset - location.start.offset;
+  }
 }

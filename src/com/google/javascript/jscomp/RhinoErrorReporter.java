@@ -54,10 +54,17 @@ class RhinoErrorReporter {
   static final DiagnosticType BAD_JSDOC_ANNOTATION =
       DiagnosticType.warning("JSC_BAD_JSDOC_ANNOTATION", "Parse error. {0}");
 
+  static final DiagnosticType JSDOC_IN_BLOCK_COMMENT =
+      DiagnosticType.warning("JSC_JSDOC_IN_BLOCK_COMMENT", "Parse error. {0}");
+
   static final DiagnosticType MISPLACED_TYPE_ANNOTATION =
       DiagnosticType.warning("JSC_MISPLACED_TYPE_ANNOTATION",
           "Type annotations are not allowed here. " +
           "Are you missing parentheses?");
+
+  static final DiagnosticType MISPLACED_FUNCTION_ANNOTATION =
+      DiagnosticType.warning("JSC_MISPLACED_FUNCTION_ANNOTATION",
+          "Misplaced function annotation.");
 
   static final DiagnosticType INVALID_ES3_PROP_NAME = DiagnosticType.warning(
       "JSC_INVALID_ES3_PROP_NAME",
@@ -114,11 +121,19 @@ class RhinoErrorReporter {
             SimpleErrorReporter.getMessage0("msg.bad.jsdoc.tag")),
             BAD_JSDOC_ANNOTATION)
 
+        .put(Pattern.compile(
+            "^\\QNon-JSDoc comment has annotations. " +
+            "Did you mean to start it with '/**'?\\E"),
+            JSDOC_IN_BLOCK_COMMENT)
+
         // Unexpected @type annotations
         .put(Pattern.compile("^Type annotations are not allowed here.*"),
             MISPLACED_TYPE_ANNOTATION)
 
-        // Unexpected @type annotations
+        // Unexpected function JsDoc
+        .put(Pattern.compile("^This JSDoc is not attached to a function node.*"),
+            MISPLACED_FUNCTION_ANNOTATION)
+
         .put(Pattern.compile("^Keywords and reserved words" +
             " are not allowed as unquoted property.*"),
             INVALID_ES3_PROP_NAME)

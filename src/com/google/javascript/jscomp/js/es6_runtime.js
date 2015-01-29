@@ -20,9 +20,6 @@
  * @author mattloring@google.com (Matthew Loring)
  */
 
-/** @const */
-$jscomp = $jscomp || {};
-
 /**
  * @constructor
  * @template T
@@ -74,7 +71,7 @@ $jscomp.Iterable.prototype.$$iterator = function() {};
 /**
  * Creates an iterator for the given iterable.
  *
- * @param {!Array.<T>|!$jscomp.Iterable.<T>} iterable
+ * @param {string|!Array.<T>|!$jscomp.Iterable.<T>} iterable
  * @return {!$jscomp.Iterator.<T>}
  * @template T
  */
@@ -82,7 +79,7 @@ $jscomp.makeIterator = function(iterable) {
   if (iterable.$$iterator) {
     return iterable.$$iterator();
   }
-  if (!(iterable instanceof Array)) {
+  if (!(iterable instanceof Array) && typeof iterable != 'string') {
     throw new Error();
   }
   var index = 0;

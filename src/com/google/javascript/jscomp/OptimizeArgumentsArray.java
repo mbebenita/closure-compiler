@@ -22,6 +22,7 @@ import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 
+import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 
@@ -64,7 +65,7 @@ class OptimizeArgumentsArray implements CompilerPass, ScopedCallback {
   private final AbstractCompiler compiler;
 
   // A stack of arguments access list to the corresponding outer functions.
-  private final Deque<List<Node>> argumentsAccessStack = Lists.newLinkedList();
+  private final Deque<List<Node>> argumentsAccessStack = new ArrayDeque<>();
 
   // This stores a list of argument access in the current scope.
   private List<Node> currentArgumentsAccess = null;
@@ -130,7 +131,7 @@ class OptimizeArgumentsArray implements CompilerPass, ScopedCallback {
     // After the attempt to replace the arguments. The currentArgumentsAccess
     // is stale and as we exit the Scope, no longer holds all the access to the
     // current scope anymore. We'll pop the access list from the outer scope
-    // and set it as currentArgumentsAcess if the outer scope is not the global
+    // and set it as currentArgumentsAccess if the outer scope is not the global
     // scope.
     if (!argumentsAccessStack.isEmpty()) {
       currentArgumentsAccess = argumentsAccessStack.pop();

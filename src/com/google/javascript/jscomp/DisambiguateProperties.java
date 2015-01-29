@@ -40,6 +40,7 @@ import com.google.javascript.rhino.jstype.ObjectType;
 import com.google.javascript.rhino.jstype.StaticScope;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -305,13 +306,20 @@ class DisambiguateProperties<T> implements CompilerPass {
   public void process(Node externs, Node root) {
     Preconditions.checkState(
         compiler.getLifeCycleStage() == LifeCycleStage.NORMALIZED);
+    // TypeValidator records places where a type A is used in a context that
+    // expects a type B.
+    // For each pair (A, B), here we mark both A and B as types whose properties
+    // cannot be renamed.
     for (TypeMismatch mis : compiler.getTypeValidator().getMismatches()) {
       addInvalidatingType(mis.typeA, mis.src);
       addInvalidatingType(mis.typeB, mis.src);
     }
-
+    // Gather names of properties in externs; these properties can't be renamed.
     NodeTraversal.traverse(compiler, externs, new FindExternProperties());
+    // Look at each unquoted property access and decide if that property will
+    // be renamed.
     NodeTraversal.traverse(compiler, root, new FindRenameableProperties());
+    // Do the actual renaming.
     renameProperties();
   }
 
@@ -433,9 +441,6 @@ class DisambiguateProperties<T> implements CompilerPass {
       }
     }
 
-    /**
-     * Processes a GETPROP node.
-     */
     private void handleGetProp(NodeTraversal t, Node n) {
       String name = n.getLastChild().getString();
       T type = typeSystem.getType(getScope(), n.getFirstChild(), name);
@@ -460,23 +465,18 @@ class DisambiguateProperties<T> implements CompilerPass {
               List<String> errors = Lists.newArrayList();
               printErrorLocations(errors, jsType);
               if (!errors.isEmpty()) {
-                suggestion = "Consider fixing errors for the following types:\n";
+                suggestion =
+                    "Consider fixing errors for the following types:\n";
                 suggestion += Joiner.on("\n").join(errors);
               }
             }
           }
-          compiler.report(JSError.make(
-              n, propertiesToErrorFor.get(name),
-              Warnings.INVALIDATION, name,
-              (type == null ? "null" : type.toString()),
-              n.toString(), suggestion));
+          compiler.report(JSError.make(n, propertiesToErrorFor.get(name), Warnings.INVALIDATION,
+              name, (String.valueOf(type)), n.toString(), suggestion));
         }
       }
     }
 
-    /**
-     * Processes a OBJECTLIT node.
-     */
     private void handleObjectLit(NodeTraversal t, Node n) {
       for (Node child = n.getFirstChild();
           child != null;
@@ -496,10 +496,8 @@ class DisambiguateProperties<T> implements CompilerPass {
           // TODO(user): It doesn't look like the user can do much in this
           // case right now.
           if (propertiesToErrorFor.containsKey(name)) {
-            compiler.report(JSError.make(
-                child, propertiesToErrorFor.get(name),
-                Warnings.INVALIDATION, name,
-                (type == null ? "null" : type.toString()), n.toString(), ""));
+            compiler.report(JSError.make(child, propertiesToErrorFor.get(name),
+                Warnings.INVALIDATION, name, (String.valueOf(type)), n.toString(), ""));
           }
         }
       }
@@ -522,8 +520,7 @@ class DisambiguateProperties<T> implements CompilerPass {
           return;
         }
 
-        errors.add(
-            t.toString() + " at " + error.sourceName + ":" + error.lineNumber);
+        errors.add(t + " at " + error.sourceName + ":" + error.lineNumber);
       }
     }
 
@@ -574,6 +571,9 @@ class DisambiguateProperties<T> implements CompilerPass {
 
         ++propsRenamed;
         prop.expandTypesToSkip();
+        // This loop has poor locality, because instead of walking the AST,
+        // we iterate over all accesses of a property, which can be in very
+        // different places in the code.
         for (Node node : prop.renameNodes) {
           T rootType = prop.rootTypes.get(node);
           if (prop.shouldRename(rootType)) {
@@ -633,7 +633,8 @@ class DisambiguateProperties<T> implements CompilerPass {
       if ("{...}".equals(typeName)) {
         newName = name;
       } else {
-        newName = NONWORD_PATTERN.matcher(typeName).replaceAll("_") + '$' + name;
+        newName = NONWORD_PATTERN.matcher(typeName).replaceAll("_") + '$'
+            + name;
       }
 
       for (T type : set) {
@@ -740,10 +741,12 @@ class DisambiguateProperties<T> implements CompilerPass {
   /** Implementation of TypeSystem using JSTypes. */
   private static class JSTypeSystem implements TypeSystem<JSType> {
     private final Set<JSType> invalidatingTypes;
+    private final Map<FunctionType, Iterable<ObjectType>> implementedInterfaces;
     private JSTypeRegistry registry;
 
     public JSTypeSystem(AbstractCompiler compiler) {
       registry = compiler.getTypeRegistry();
+      implementedInterfaces = new HashMap<>();
       invalidatingTypes = Sets.newHashSet(
           registry.getNativeType(JSTypeNative.ALL_TYPE),
           registry.getNativeType(JSTypeNative.NO_OBJECT_TYPE),
@@ -924,34 +927,35 @@ class DisambiguateProperties<T> implements CompilerPass {
     public void recordInterfaces(JSType type, JSType relatedType,
                                  DisambiguateProperties<JSType>.Property p) {
       ObjectType objType = ObjectType.cast(type);
-      if (objType != null) {
-        FunctionType constructor;
-        if (objType.isFunctionType()) {
-          constructor = objType.toMaybeFunctionType();
-        } else if (objType.isFunctionPrototypeType()) {
-          constructor = objType.getOwnerFunction();
+      if (objType == null) {
+        return;
+      }
+      FunctionType constructor;
+      if (objType.isFunctionType()) {
+        constructor = objType.toMaybeFunctionType();
+      } else if (objType.isFunctionPrototypeType()) {
+        constructor = objType.getOwnerFunction();
+      } else {
+        constructor = objType.getConstructor();
+      }
+      if (constructor == null) {
+        return;
+      }
+      Iterable<ObjectType> interfaces = implementedInterfaces.get(constructor);
+      if (interfaces == null) {
+        interfaces = constructor.getImplementedInterfaces();
+        implementedInterfaces.put(constructor, interfaces);
+      }
+      for (ObjectType itype : interfaces) {
+        JSType top = getTypeWithProperty(p.name, itype);
+        if (top != null) {
+          p.addType(itype, top, relatedType);
         } else {
-          constructor = objType.getConstructor();
+          recordInterfaces(itype, relatedType, p);
         }
-        while (constructor != null) {
-          for (ObjectType itype : constructor.getImplementedInterfaces()) {
-            JSType top = getTypeWithProperty(p.name, itype);
-            if (top != null) {
-              p.addType(itype, top, relatedType);
-            } else {
-              recordInterfaces(itype, relatedType, p);
-            }
-
-            // If this interface invalidated this property, return now.
-            if (p.skipRenaming) {
-              return;
-            }
-          }
-          if (constructor.isInterface() || constructor.isConstructor()) {
-            constructor = constructor.getSuperClassConstructor();
-          } else {
-            constructor = null;
-          }
+        // If this interface invalidated this property, return now.
+        if (p.skipRenaming) {
+          return;
         }
       }
     }

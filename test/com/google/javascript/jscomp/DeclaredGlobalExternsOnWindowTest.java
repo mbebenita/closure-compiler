@@ -17,6 +17,8 @@
 package com.google.javascript.jscomp;
 
 public class DeclaredGlobalExternsOnWindowTest extends CompilerTestCase {
+  private static final String WINDOW_DEFINITION =
+      "/** @constructor */ function Window(){}\nvar /** Window */ window;";
 
   @Override
   protected CompilerPass getProcessor(Compiler compiler) {
@@ -26,6 +28,8 @@ public class DeclaredGlobalExternsOnWindowTest extends CompilerTestCase {
   @Override
   protected void setUp() {
     allowExternsChanges(true);
+    enableTypeCheck(CheckLevel.ERROR);
+    runTypeCheckAfterProcessing = true;
   }
 
   @Override
@@ -34,10 +38,11 @@ public class DeclaredGlobalExternsOnWindowTest extends CompilerTestCase {
   }
 
   public void testWindowProperty1a() {
-    testExternChanges("var window; var a", "", "var window;var a;window.window;window.a");
+    testExternChanges("function Window(){} var a", "",
+        "function Window(){} var a; Window.prototype.a");
   }
 
-  // No "var window;" so this is a no-op.
+  // No "function Window(){};" so this is a no-op.
   public void testWindowProperty1b() {
     testExternChanges("var a", "", "var a");
   }
@@ -47,11 +52,11 @@ public class DeclaredGlobalExternsOnWindowTest extends CompilerTestCase {
   }
 
   public void testWindowProperty3a() {
-    testExternChanges("var window; function f() {}", "var b",
-        "var window;function f(){};window.window;window.f;");
+    testExternChanges("function Window(){} function f() {}", "var b",
+        "function Window(){} function f(){} Window.prototype.f;");
   }
 
-  // No "var window;" so this is a no-op.
+  // No "function Window(){};" so this is a no-op.
   public void testWindowProperty3b() {
     testExternChanges("function f() {}", "var b", "function f(){}");
   }
@@ -61,25 +66,44 @@ public class DeclaredGlobalExternsOnWindowTest extends CompilerTestCase {
   }
 
   public void testWindowProperty5a() {
-    testExternChanges("var window; var x = function f() {}", "var b",
-        "var window;var x=function f(){};window.window;window.x;");
+    testExternChanges("function Window(){} var x = function f() {}", "var b",
+        "function Window(){} var x=function f(){};Window.prototype.x;");
   }
 
-  // No "var window;" so this is a no-op.
+  // No "function Window(){};" so this is a no-op.
   public void testWindowProperty5b() {
     testExternChanges("var x = function f() {}", "var b", "var x=function f(){}");
   }
 
+  public void testWindowProperty6() {
+    testExternChanges("function Window(){} /** @const {number} */ var n;", "",
+        "function Window(){}\n" +
+        "/** @const {number} */ var n;\n" +
+        "/** @const {number} @suppress {duplicate} */ Window.prototype.n;");
+  }
+
+  public void testWindowProperty7() {
+    testExternChanges("function Window(){} /** @const */ var ns = {}", "",
+        "function Window(){}\n" +
+        "/** @const */ var ns = {};\n" +
+        "/** @suppress {duplicate} */ Window.prototype.ns = ns;");
+  }
+
+  public void testWindowProperty8() {
+    testExternChanges("function Window(){} /** @constructor */ function Foo() {}", "",
+        "function Window(){}\n" +
+        "/** @constructor */ function Foo(){}\n" +
+        "/** @constructor @suppress {duplicate} */ Window.prototype.Foo = Foo;");
+  }
+
+
   /**
-   * Test to make sure the compiler knows the type of "window.x"
+   * Test to make sure the compiler knows the type of "Window.prototype.x"
    * is the same as that of "x".
    */
   public void testWindowPropertyWithJsDoc() {
-    enableTypeCheck(CheckLevel.ERROR);
-    runTypeCheckAfterProcessing = true;
-
     testSame(
-        "var window;\n/** @type {string} */ var x;",
+        WINDOW_DEFINITION + "/** @type {string} */ var x;",
         "/** @param {number} n*/\n" +
         "function f(n) {}\n" +
         "f(window.x);\n",
@@ -87,15 +111,13 @@ public class DeclaredGlobalExternsOnWindowTest extends CompilerTestCase {
   }
 
   public void testEnum() {
-    enableTypeCheck(CheckLevel.ERROR);
-    runTypeCheckAfterProcessing = true;
-
     testSame(
-        "/** @enum {string} */ var Enum = {FOO: 'foo', BAR: 'bar'};",
+        WINDOW_DEFINITION + "/** @enum {string} */ var Enum = {FOO: 'foo', BAR: 'bar'};",
         "/** @param {Enum} e*/\n" +
         "function f(e) {}\n" +
-        "f(window.Enum.FOO);\n",
-        null);
+        "f(window.Enum.FOO);\n" +
+        "f(7);",
+        TypeValidator.TYPE_MISMATCH_WARNING);
   }
 
   /**
@@ -103,21 +125,21 @@ public class DeclaredGlobalExternsOnWindowTest extends CompilerTestCase {
    * to be the same type as window.Foo.
    */
   public void testConstructorIsSameType() {
-    enableTypeCheck(CheckLevel.ERROR);
-    runTypeCheckAfterProcessing = true;
-
     testSame(
-        "var window;\n/** @constructor */ function Foo() {}\n",
-        "/** @param {!window.Foo} f*/\n" +
-        "function bar(f) {}\n" +
-        "bar(new Foo());",
-        null);
-
-    testSame(
-        "/** @constructor */ function Foo() {}\n",
+        WINDOW_DEFINITION + "/** @constructor */ function Foo() {}\n",
         "/** @param {!Foo} f*/\n" +
         "function bar(f) {}\n" +
-        "bar(new window.Foo());",
-        null);
+        "bar(new window.Foo());\n" +
+        "bar(7);",
+        TypeValidator.TYPE_MISMATCH_WARNING);
+
+    testSame(
+        WINDOW_DEFINITION + "/** @constructor */ function Foo() {}\n",
+        "/** @param {!Window.prototype.Foo} f*/\n" +
+        "function bar(f) {}\n" +
+        "bar(new Foo());\n" +
+        "bar(7);",
+        TypeValidator.TYPE_MISMATCH_WARNING);
+
   }
 }

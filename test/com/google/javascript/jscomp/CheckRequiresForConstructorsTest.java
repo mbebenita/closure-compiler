@@ -16,8 +16,10 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.truth.Truth.assertThat;
 import static com.google.javascript.jscomp.CheckRequiresForConstructors.MISSING_REQUIRE_WARNING;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 
 /**
@@ -86,6 +88,24 @@ public class CheckRequiresForConstructorsTest extends CompilerTestCase {
     test(js, js, null, MISSING_REQUIRE_WARNING, warning);
   }
 
+  public void testFailWithImplements() {
+    String[] js = new String[] {
+      "var goog = {};"
+      + "goog.provide('example.Foo'); /** @interface */ example.Foo = function() {};",
+
+      "/** @constructor @implements {example.Foo} */ var Ctor = function() {};"
+    };
+    String warning = "'example.Foo' used but not goog.require'd";
+    test(js, js, null, MISSING_REQUIRE_WARNING, warning);
+  }
+
+  public void testPassWithImplements() {
+    String js = "goog.require('example.Foo');"
+      + "/** @constructor @implements {example.Foo} */"
+      + "var Ctor = function() {};";
+    testSame(js);
+  }
+
   public void testPassWithLocalFunctions() {
     String js =
         "/** @constructor */ function tempCtor() {}; var foo = new tempCtor();";
@@ -102,10 +122,12 @@ public class CheckRequiresForConstructorsTest extends CompilerTestCase {
   public void testFailWithLocalVariableInMoreThanOneFile() {
     // there should be a warning for the 2nd script because it is only declared
     // in the 1st script
-    String localVar =
-        "/** @constructor */ function tempCtor() {}" +
-        "function baz(){" + " /** @constructor */ function tempCtor() {}; "
-            + "var foo = new tempCtor();}";
+    String localVar = Joiner.on('\n').join(
+        "/** @constructor */ function tempCtor() {}",
+        "function baz() {",
+        "  /** @constructor */ function tempCtor() {}",
+        "  var foo = new tempCtor();",
+        "}");
     String[] js = new String[] {localVar, " var foo = new tempCtor();"};
     String warning = "'tempCtor' used but not goog.require'd";
     test(js, js, null, MISSING_REQUIRE_WARNING, warning);
@@ -203,14 +225,13 @@ public class CheckRequiresForConstructorsTest extends CompilerTestCase {
     SourceFile input = SourceFile.fromCode("foo.js", js);
     Compiler compiler = new Compiler();
     CompilerOptions opts = new CompilerOptions();
-    opts.checkRequires = CheckLevel.WARNING;
-    opts.closurePass = true;
+    opts.setCheckRequires(CheckLevel.WARNING);
+    opts.setClosurePass(true);
 
-    Result result = compiler.compile(ImmutableList.<SourceFile>of(),
-        ImmutableList.of(input), opts);
+    Result result = compiler.compile(ImmutableList.<SourceFile>of(), ImmutableList.of(input), opts);
     JSError[] warnings = result.warnings;
     assertNotNull(warnings);
-    assertTrue(warnings.length > 0);
+    assertThat(warnings).isNotEmpty();
 
     String expectation = "'foo.bar.goo' used but not goog.require'd";
 

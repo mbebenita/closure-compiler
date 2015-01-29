@@ -68,19 +68,37 @@ public class FunctionType {
     this.outerVarPreconditions = outerVars;
     this.typeParameters = typeParameters;
     this.isLoose = isLoose;
+    checkValid();
+  }
+
+  // Only used to create TOP_FUNCTION and LOOSE_TOP_FUNCTION
+  private FunctionType(boolean isLoose) {
+    this.requiredFormals = null;
+    this.optionalFormals = null;
+    this.restFormals = null;
+    this.returnType = null;
+    this.nominalType = null;
+    this.receiverType = null;
+    this.outerVarPreconditions = null;
+    this.typeParameters = null;
+    this.isLoose = isLoose;
   }
 
   void checkValid() {
     if (isTopFunction() || isQmarkFunction()) {
       return;
     }
+    Preconditions.checkNotNull(requiredFormals,
+        "null required formals for function: %s", this);
     for (JSType formal : requiredFormals) {
-      Preconditions.checkState(formal != null);
+      Preconditions.checkNotNull(formal);
     }
+    Preconditions.checkNotNull(requiredFormals,
+        "null optional formals for function: %s", this);
     for (JSType formal : optionalFormals) {
-      Preconditions.checkState(formal != null);
+      Preconditions.checkNotNull(formal);
     }
-    Preconditions.checkState(returnType != null);
+    Preconditions.checkNotNull(returnType);
   }
 
   public boolean isLoose() {
@@ -88,6 +106,9 @@ public class FunctionType {
   }
 
   FunctionType withLoose() {
+    if (isLoose()) {
+      return this;
+    }
     if (isTopFunction()) {
       return LOOSE_TOP_FUNCTION;
     }
@@ -149,21 +170,16 @@ public class FunctionType {
   // We can't represent the theoretical top function, so we special-case
   // TOP_FUNCTION below. However, the outcome is the same; if our top function
   // is ever called, a warning is inevitable.
-  public static final FunctionType TOP_FUNCTION = new FunctionType(
-      // Call the constructor directly to set fields to null
-      null, null, null, null, null, null, null, null, false);
-  public static final FunctionType LOOSE_TOP_FUNCTION = new FunctionType(
-      // Call the constructor directly to set fields to null
-      null, null, null, null, null, null, null, null, true);
+  static final FunctionType TOP_FUNCTION = new FunctionType(false);
+  private static final FunctionType LOOSE_TOP_FUNCTION = new FunctionType(true);
+
   // Corresponds to Function, which is a subtype and supertype of all functions.
   static final FunctionType QMARK_FUNCTION = FunctionType.normalized(null,
-      null, JSType.UNKNOWN, JSType.UNKNOWN, null, null, null, null, false);
+      null, JSType.UNKNOWN, JSType.UNKNOWN, null, null, null, null, true);
+  private static final FunctionType BOTTOM_FUNCTION = FunctionType.normalized(
+      null, null, null, JSType.BOTTOM, null, null, null, null, false);
 
   public boolean isTopFunction() {
-    if (requiredFormals == null) {
-      Preconditions.checkState(
-          this == TOP_FUNCTION || this == LOOSE_TOP_FUNCTION);
-    }
     return this == TOP_FUNCTION || this == LOOSE_TOP_FUNCTION;
   }
 
@@ -175,15 +191,28 @@ public class FunctionType {
     return nominalType != null && nominalType.isInterface();
   }
 
+  public JSType getSuperPrototype() {
+    Preconditions.checkState(isConstructor());
+    NominalType superClass = nominalType.getInstantiatedSuperclass();
+    return superClass == null ? null : superClass.getPrototype();
+  }
+
   public boolean isQmarkFunction() {
     return this == QMARK_FUNCTION;
+  }
+
+  static boolean isInhabitable(FunctionType f) {
+    return f != BOTTOM_FUNCTION;
+  }
+
+  public boolean hasRestFormals() {
+    return restFormals != null;
   }
 
   // 0-indexed
   // Returns null if argpos indexes past the arguments
   public JSType getFormalType(int argpos) {
     Preconditions.checkArgument(!isTopFunction());
-    checkValid();
     int numReqFormals = requiredFormals.size();
     if (argpos < numReqFormals) {
       Preconditions.checkState(null != requiredFormals.get(argpos));
@@ -199,11 +228,7 @@ public class FunctionType {
 
   public JSType getReturnType() {
     Preconditions.checkArgument(!isTopFunction());
-    if (isConstructor()) {
-      return getTypeOfThis();
-    } else {
-      return returnType;
-    }
+    return returnType;
   }
 
   public JSType getOuterVarPrecondition(String name) {
@@ -225,21 +250,50 @@ public class FunctionType {
     }
   }
 
-  public JSType getTypeOfThis() {
-    Preconditions.checkNotNull(nominalType);
-    return JSType.fromObjectType(ObjectType.fromNominalType(nominalType));
+  public boolean isRequiredArg(int i) {
+    return i < requiredFormals.size();
   }
 
-  public JSType createConstructorObject() {
+  public boolean isOptionalArg(int i) {
+    return i >= requiredFormals.size()
+        && i < requiredFormals.size() + optionalFormals.size();
+  }
+
+  public JSType getInstanceTypeOfCtor() {
+    if (!isGeneric()) {
+      return nominalType.getInstanceAsJSType();
+    }
+    ImmutableMap.Builder<String, JSType> builder = ImmutableMap.builder();
+    for (String typeVar : getTypeParameters()) {
+      builder.put(typeVar, JSType.UNKNOWN);
+    }
+    return instantiateGenerics(builder.build())
+        .nominalType.getInstanceAsJSType();
+  }
+
+  public JSType getThisType() {
+    if (receiverType != null) {
+      return receiverType.getInstanceAsJSType();
+    }
+    if (nominalType != null) {
+      return nominalType.getInstanceAsJSType();
+    }
+    return null;
+  }
+
+  public JSType createConstructorObject(NominalType fnNominal) {
     Preconditions.checkState(nominalType != null);
-    return NominalType.createConstructorObject(this);
+    return NominalType.createConstructorObject(this, fnNominal);
   }
 
   // Used to get a declared type for an unannotated function that appears in
   // argument position.
   // Should only be used during GlobalTypeInfo.
   public DeclaredFunctionType toDeclaredFunctionType() {
-    Preconditions.checkState(!isLoose);
+    if (isQmarkFunction()) {
+      return FunctionTypeBuilder.qmarkFunctionBuilder().buildDeclaration();
+    }
+    Preconditions.checkState(!isLoose());
     // Don't do it for generic types.
     if (typeParameters != null) {
       return null;
@@ -309,20 +363,17 @@ public class FunctionType {
     // NOTE(dimvar): We never happen to call isSubtypeOf for loose functions.
     // If some analyzed program changes this, the preconditions check will tell
     // us so we can handle looseness correctly.
-    Preconditions.checkState(!isLoose && !other.isLoose);
+    Preconditions.checkState(!isLoose() && !other.isLoose());
     if (this.isGeneric()) {
-      // This can only happen when typechecking an assignment that "defines" a
-      // polymorphic function, eg,
-      // /**
-      //  * @template {T}
-      //  * @param {T} x
-      //  */
-      // Foo.prototype.method = function(x) {};
-
-      // TODO(dimvar): This also comes up in inheritance of classes with
-      // polymorphic methods; fix for that.
-      return true;
+      if (this.equals(other)) {
+        return true;
+      }
+      // NOTE(dimvar): This is a bug. The code that triggers this should be rare
+      // and the fix is not trivial, so for now we decided to not fix.
+      // See unit tests in NewTypeInferenceTest#testGenericsSubtyping
+      return instantiateGenericsWithUnknown(this).isSubtypeOf(other);
     }
+
     // The subtype must have an equal or smaller number of required formals
     if (requiredFormals.size() > other.requiredFormals.size()) {
       return false;
@@ -419,12 +470,16 @@ public class FunctionType {
   }
 
   FunctionType specialize(FunctionType other) {
-    if (other == null ||
-        !this.isLoose() && other.isLoose()) {
+    if (other == null
+        || other.isQmarkFunction()
+        || !this.isLoose() && other.isLoose()) {
       return this;
-    } else {
-      return FunctionType.meet(this, other);
     }
+    FunctionType result = FunctionType.meet(this, other);
+    if (this.isLoose() && !result.isLoose()) {
+      result = result.withLoose();
+    }
+    return result;
   }
 
   static FunctionType meet(FunctionType f1, FunctionType f2) {
@@ -439,6 +494,20 @@ public class FunctionType {
     // War is peace, freedom is slavery, meet is join
     if (f1.isLoose() || f2.isLoose()) {
       return FunctionType.looseJoin(f1, f2);
+    }
+
+    if (f1.isGeneric() && f1.isSubtypeOf(f2)) {
+      return f1;
+    } else if (f2.isGeneric() && f2.isSubtypeOf(f1)) {
+      return f2;
+    }
+
+    // We lose precision for generic funs that are not in a subtype relation.
+    if (f1.isGeneric()) {
+      f1 = instantiateGenericsWithUnknown(f1);
+    }
+    if (f2.isGeneric()) {
+      f2 = instantiateGenericsWithUnknown(f2);
     }
 
     FunctionTypeBuilder builder = new FunctionTypeBuilder();
@@ -459,7 +528,11 @@ public class FunctionType {
       builder.addRestFormals(
           JSType.nullAcceptingJoin(f1.restFormals, f2.restFormals));
     }
-    builder.addRetType(JSType.meet(f1.returnType, f2.returnType));
+    JSType retType = JSType.meet(f1.returnType, f2.returnType);
+    if (retType.isBottom()) {
+      return BOTTOM_FUNCTION;
+    }
+    builder.addRetType(retType);
     // TODO(dimvar): these two are not correct. We should be picking the
     // greatest lower bound of the types if they are incomparable.
     // Eg, this case arises when an interface extends multiple interfaces.
@@ -479,10 +552,9 @@ public class FunctionType {
     if (this.isTopFunction() || f2.isTopFunction()) {
       return true;
     }
-
-    int maxRequiredArity = Math.max(
-        this.requiredFormals.size(), f2.requiredFormals.size());
-    for (int i = 0; i < maxRequiredArity; i++) {
+    int minRequiredArity =
+        Math.min(this.requiredFormals.size(), f2.requiredFormals.size());
+    for (int i = 0; i < minRequiredArity; i++) {
       if (JSType.meet(this.getFormalType(i), f2.getFormalType(i)).isBottom()) {
         return false;
       }
@@ -503,6 +575,14 @@ public class FunctionType {
       Multimap<String, JSType> typeMultimap) {
     Preconditions.checkState(this.typeParameters == null);
     Preconditions.checkState(this.outerVarPreconditions.isEmpty());
+
+    if (this == LOOSE_TOP_FUNCTION || other == LOOSE_TOP_FUNCTION) {
+      return true;
+    }
+
+    Preconditions.checkState(
+        this.requiredFormals != null && other.requiredFormals != null,
+        "Cannot run unification algorithm on %s and %s", this, other);
 
     if (requiredFormals.size() != other.requiredFormals.size()) {
       return false;
@@ -548,16 +628,22 @@ public class FunctionType {
       return false;
     }
 
-    if (receiverType == null && other.receiverType != null
-        || receiverType != null && other.receiverType == null) {
-      return false;
-    }
-    if (receiverType != null && !receiverType.unifyWith(
-        other.receiverType, typeParameters, typeMultimap)) {
+    // If one of the two functions doesn't use THIS in the body, we can still
+    // unify.
+    if (this.receiverType != null && other.receiverType != null
+        && !this.receiverType.unifyWith(
+            other.receiverType, typeParameters, typeMultimap)) {
       return false;
     }
 
     return returnType.unifyWith(other.returnType, typeParameters, typeMultimap);
+  }
+
+  private static FunctionType instantiateGenericsWithUnknown(FunctionType f) {
+    if (!f.isGeneric()) {
+      return f;
+    }
+    return f.instantiateGenerics(JSType.MAP_TO_UNKNOWN);
   }
 
   /**
@@ -640,12 +726,59 @@ public class FunctionType {
     return builder.buildFunction();
   }
 
-  /**
-   * @param keepTypeParams See the two cases in substituteGenerics and
-   * instantiateGenerics.
-   */
-  private FunctionType applyInstantiation(
-      boolean keepTypeParams, Map<String, JSType> typeMap) {
+  private FunctionType substituteNominalGenerics(Map<String, JSType> typeMap) {
+    if (typeMap.isEmpty()) {
+      return this;
+    }
+    Map<String, JSType> reducedMap = typeMap;
+    if (typeParameters != null) {
+      boolean foundShadowedTypeParam = false;
+      for (String typeParam : typeParameters) {
+        if (typeMap.containsKey(typeParam)) {
+          foundShadowedTypeParam = true;
+          break;
+        }
+      }
+      if (foundShadowedTypeParam) {
+        ImmutableMap.Builder<String, JSType> builder = ImmutableMap.builder();
+        for (Map.Entry<String, JSType> entry : typeMap.entrySet()) {
+          if (!typeParameters.contains(entry.getKey())) {
+            builder.put(entry);
+          }
+        }
+        reducedMap = builder.build();
+      }
+    }
+    FunctionTypeBuilder builder = new FunctionTypeBuilder();
+    for (JSType reqFormal : requiredFormals) {
+      builder.addReqFormal(reqFormal.substituteGenerics(reducedMap));
+    }
+    for (JSType optFormal : optionalFormals) {
+      builder.addOptFormal(optFormal.substituteGenerics(reducedMap));
+    }
+    if (restFormals != null) {
+      builder.addRestFormals(restFormals.substituteGenerics(reducedMap));
+    }
+    builder.addRetType(returnType.substituteGenerics(reducedMap));
+    if (isLoose()) {
+      builder.addLoose();
+    }
+    if (nominalType != null) {
+      builder.addNominalType(nominalType.instantiateGenerics(typeMap));
+    }
+    if (receiverType != null) {
+      builder.addReceiverType(receiverType.instantiateGenerics(typeMap));
+    }
+    // TODO(blickly): Do we need instatiation here?
+    for (String var : outerVarPreconditions.keySet()) {
+      builder.addOuterVarPrecondition(var, outerVarPreconditions.get(var));
+    }
+    builder.addTypeParameters(this.typeParameters);
+    return builder.buildFunction();
+  }
+
+  private FunctionType substituteParametricGenerics(
+      Map<String, JSType> typeMap) {
     if (typeMap.isEmpty()) {
       return this;
     }
@@ -660,21 +793,33 @@ public class FunctionType {
       builder.addRestFormals(restFormals.substituteGenerics(typeMap));
     }
     builder.addRetType(returnType.substituteGenerics(typeMap));
-    if (isLoose) {
+    if (isLoose()) {
       builder.addLoose();
     }
     if (nominalType != null) {
       builder.addNominalType(nominalType.instantiateGenerics(typeMap));
     }
     if (receiverType != null) {
-      builder.addReceiverType(receiverType.instantiateGenerics(typeMap));
+      // NOTE(dimvar):
+      // We have no way of knowing if receiverType comes from an @this
+      // annotation, or because this type represents a method.
+      // In case 1, we would want to substitute in receiverType, in case 2 we
+      // don't, it's a different scope for the type variables.
+      // To properly track this we would need two separate fields instead of
+      // just receiverType.
+      // Instead, the IF test is a heuristic that works in most cases.
+      // In the else branch, we are substituting incorrectly when receiverType
+      // comes from a method declaration, but I have not been able to find a
+      // test that exposes the bug.
+      if (receiverType.isUninstantiatedGenericType()) {
+        builder.addReceiverType(receiverType);
+      } else {
+        builder.addReceiverType(receiverType.instantiateGenerics(typeMap));
+      }
     }
     // TODO(blickly): Do we need instatiation here?
     for (String var : outerVarPreconditions.keySet()) {
       builder.addOuterVarPrecondition(var, outerVarPreconditions.get(var));
-    }
-    if (keepTypeParams) {
-      builder.addTypeParameters(this.typeParameters);
     }
     return builder.buildFunction();
   }
@@ -688,25 +833,28 @@ public class FunctionType {
     Map<String, JSType> typeMap = concreteTypes;
     if (typeParameters != null) {
       ImmutableMap.Builder<String, JSType> builder = ImmutableMap.builder();
-      for (Map.Entry<String, JSType> concreteTypeEntry : concreteTypes.entrySet()) {
+      for (Map.Entry<String, JSType> concreteTypeEntry
+               : concreteTypes.entrySet()) {
         if (!typeParameters.contains(concreteTypeEntry.getKey())) {
-          builder.put(concreteTypeEntry.getKey(), concreteTypeEntry.getValue());
+          builder.put(concreteTypeEntry);
         }
       }
       typeMap = builder.build();
     }
-    return applyInstantiation(true, typeMap);
+    return substituteNominalGenerics(typeMap);
   }
 
   public FunctionType instantiateGenerics(Map<String, JSType> typeMap) {
-    for (String typeParam : typeMap.keySet()) {
-      Preconditions.checkState(typeParameters.contains(typeParam));
-    }
-    return applyInstantiation(false, typeMap);
+    Preconditions.checkNotNull(typeParameters);
+    return substituteParametricGenerics(typeMap);
   }
 
-  public FunctionType instantiateGenericsFromArgumentList(
+  public FunctionType instantiateGenericsFromArgumentTypes(
       List<JSType> argTypes) {
+    Preconditions.checkNotNull(typeParameters);
+    if (argTypes.size() < getMinArity() || argTypes.size() > getMaxArity()) {
+      return null;
+    }
     Multimap<String, JSType> typeMultimap = HashMultimap.create();
     for (int i = 0, size = argTypes.size(); i < size; i++) {
       if (!this.getFormalType(i)
@@ -722,7 +870,7 @@ public class FunctionType {
       }
       builder.put(typeParam, Iterables.getOnlyElement(types));
     }
-    return applyInstantiation(false, builder.build());
+    return substituteParametricGenerics(builder.build());
   }
 
   @Override
@@ -755,11 +903,12 @@ public class FunctionType {
   }
 
   public StringBuilder appendTo(StringBuilder builder) {
-    if (isTopFunction()) {
-      if (isLoose) {
-        return builder.append("LOOSE_TOP_FUNCTION");
-      }
+    if (this == LOOSE_TOP_FUNCTION) {
+      return builder.append("LOOSE_TOP_FUNCTION");
+    } else if (this == TOP_FUNCTION) {
       return builder.append("TOP_FUNCTION");
+    } else if (this == QMARK_FUNCTION) {
+      return builder.append("QMARK_FUNCTION");
     }
     builder.append("function(");
     if (nominalType != null) {
@@ -792,7 +941,7 @@ public class FunctionType {
       builder.append(':');
       returnType.appendTo(builder);
     }
-    if (isLoose) {
+    if (isLoose()) {
       builder.append(" (loose)");
     }
     if (DEBUGGING && !outerVarPreconditions.isEmpty()) {

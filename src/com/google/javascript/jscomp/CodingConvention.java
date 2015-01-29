@@ -15,9 +15,10 @@
  */
 package com.google.javascript.jscomp;
 
+import com.google.javascript.jscomp.newtypes.DeclaredTypeRegistry;
+import com.google.javascript.jscomp.newtypes.JSType;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.jstype.FunctionType;
-import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.JSTypeNative;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
 import com.google.javascript.rhino.jstype.ObjectType;
@@ -253,7 +254,8 @@ public interface CodingConvention extends Serializable {
    * @param delegateProxyPrototypes List of delegate proxy prototypes.
    */
   public void defineDelegateProxyPrototypeProperties(
-      JSTypeRegistry registry, StaticScope<JSType> scope,
+      JSTypeRegistry registry,
+      StaticScope<com.google.javascript.rhino.jstype.JSType> scope,
       List<ObjectType> delegateProxyPrototypes,
       Map<String, String> delegateCallingConventions);
 
@@ -269,10 +271,26 @@ public interface CodingConvention extends Serializable {
 
   /**
    * A Bind instance or null.
-   * @param useTypeInfo If we believe type information is reliable enough
-   *     to use to figure out what the bind function is.
+   *
+   * When seeing an expression exp1.bind(recv, arg1, ...);
+   * we only know that it's a function bind if exp1 has type function.
+   * W/out type info, exp1 has certainly a function type only if it's a
+   * function literal.
+   *
+   * If (the old) type checking has already happened, exp1's type is attached to
+   * the AST node.
+   * When iCheckTypes is true, describeFunctionBind looks for that type.
+   *
+   * The new type inference does not yet attach types to nodes, but we can still
+   * use type information in describeFunctionBind by passing true for
+   * callerChecksTypes.
+   *
+   * @param callerChecksTypes Trust that the caller of this method has verified
+   *        that the bound node has a function type.
+   * @param iCheckTypes Check that the bound node has a function type.
    */
-  public Bind describeFunctionBind(Node n, boolean useTypeInfo);
+  public Bind describeFunctionBind(
+      Node n, boolean callerChecksTypes, boolean iCheckTypes);
 
   /** Bind class */
   public static class Bind {
@@ -401,15 +419,24 @@ public interface CodingConvention extends Serializable {
    */
   public class AssertionFunctionSpec {
     protected final String functionName;
+    // Old type system type
     protected final JSTypeNative assertedType;
+    // New type system type
+    protected final JSType assertedNewType;
 
+    @Deprecated
     public AssertionFunctionSpec(String functionName) {
-      this(functionName, null);
+      this(functionName, JSType.UNKNOWN, null);
+    }
+
+    public AssertionFunctionSpec(String functionName, JSType assertedNewType) {
+      this(functionName, assertedNewType, null);
     }
 
     public AssertionFunctionSpec(String functionName,
-        JSTypeNative assertedType) {
+        JSType assertedNewType, JSTypeNative assertedType) {
       this.functionName = functionName;
+      this.assertedNewType = assertedNewType;
       this.assertedType = assertedType;
     }
 
@@ -427,12 +454,22 @@ public interface CodingConvention extends Serializable {
     }
 
     /**
-     * Returns the type for a type assertion, or null if the function asserts
-     * that the node must not be null or undefined.
+     * Returns the old type system type for a type assertion, or null if
+     * the function asserts that the node must not be null or undefined.
      * @param call The asserting call
      */
-    public JSType getAssertedType(Node call, JSTypeRegistry registry) {
+    public com.google.javascript.rhino.jstype.JSType
+        getAssertedOldType(Node call, JSTypeRegistry registry) {
       return assertedType != null ? registry.getNativeType(assertedType) : null;
+    }
+
+    /**
+     * Returns the new type system type for a type assertion.
+     * @param call The asserting call
+     */
+    public com.google.javascript.jscomp.newtypes.JSType
+        getAssertedNewType(Node call, DeclaredTypeRegistry scope) {
+      return assertedNewType;
     }
   }
 }

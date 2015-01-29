@@ -20,8 +20,6 @@ import com.google.common.base.CharMatcher;
 import com.google.common.collect.Lists;
 import com.google.javascript.jscomp.ErrorManager;
 
-import java.io.FileReader;
-import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
 import java.util.List;
@@ -41,7 +39,7 @@ public class JsFileParser extends JsFileLineParser {
 
   /** Pattern for matching goog.provide(*) and goog.require(*). */
   private static final Pattern GOOG_PROVIDE_REQUIRE_PATTERN = Pattern.compile(
-      "(?:^|;)\\s*(?:(?:var|let|const)\\s+[a-zA-Z_$][a-zA-Z0-9$_]*\\s+=\\s+)?goog\\.(provide|module|require|addDependency)\\s*\\((.*?)\\)");
+      "(?:^|;)\\s*(?:(?:var|let|const)\\s+[a-zA-Z_$][a-zA-Z0-9$_]*\\s*=\\s*)?goog\\.(provide|module|require|addDependency)\\s*\\((.*?)\\)");
 
   /** The first non-comment line of base.js */
   private static final String BASE_JS_START = "var COMPILED = false;";
@@ -83,21 +81,6 @@ public class JsFileParser extends JsFileLineParser {
   public JsFileParser setIncludeGoogBase(boolean include) {
     includeGoogBase = include;
     return this;
-  }
-
-  /**
-   * Parses the given file and returns the dependency information that it
-   * contained.
-   *
-   * @param filePath Path to the file to parse.
-   * @param closureRelativePath Path of the file relative to closure.
-   * @return A DependencyInfo containing all provides/requires found in the
-   *     file.
-   * @throws IOException Thrown if there was an problem reading the given file.
-   */
-  public DependencyInfo parseFile(String filePath, String closureRelativePath)
-      throws IOException {
-    return parseReader(filePath, closureRelativePath, new FileReader(filePath));
   }
 
   /**

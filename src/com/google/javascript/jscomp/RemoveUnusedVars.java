@@ -70,6 +70,7 @@ import java.util.Set;
  * {@code FlowSensitiveInlineVariables}, except that it works for variables
  * used across scopes.
  *
+ * @author nicksantos@google.com (Nick Santos)
  */
 class RemoveUnusedVars
     implements CompilerPass, OptimizeCalls.CallGraphCompilerPass {
@@ -321,11 +322,7 @@ class RemoveUnusedVars
     }
 
     // Exported variables are off-limits.
-    if (codingConvention.isExported(var.getName())) {
-      return false;
-    }
-
-    return true;
+    return !codingConvention.isExported(var.getName());
   }
 
   /**

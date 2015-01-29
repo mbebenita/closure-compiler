@@ -20,12 +20,13 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
 import com.google.javascript.jscomp.ReferenceCollectingCallback.ReferenceCollection;
 import com.google.javascript.jscomp.Scope.Var;
-import com.google.javascript.jscomp.parsing.Comment;
 import com.google.javascript.jscomp.parsing.Config;
+import com.google.javascript.jscomp.parsing.parser.trees.Comment;
 import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.TypeIRegistry;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
 
 import java.util.List;
@@ -45,6 +46,8 @@ import javax.annotation.Nullable;
 public abstract class AbstractCompiler implements SourceExcerptProvider {
   static final DiagnosticType READ_ERROR = DiagnosticType.error(
       "JSC_READ_ERROR", "Cannot read: {0}");
+
+  boolean needsEs6Runtime = false;
 
   /**
    * Will be called before each pass runs.
@@ -103,6 +106,8 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
    * Gets a central registry of type information from the compiled JS.
    */
   public abstract JSTypeRegistry getTypeRegistry();
+
+  public abstract TypeIRegistry getTypeIRegistry();
 
   /**
    * Gets a memoized scope creator with type information.
@@ -279,13 +284,6 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
   }
 
   /**
-   * Returns the parser configuration for the default context.
-   */
-  final Config getParserConfig() {
-    return getParserConfig(ConfigContext.DEFAULT);
-  }
-
-  /**
    * Returns the parser configuration for the specified context.
    */
   abstract Config getParserConfig(ConfigContext context);
@@ -372,6 +370,8 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
    * Returns the root node of the AST, which includes both externs and source.
    */
   abstract Node getRoot();
+
+  abstract CompilerOptions getOptions();
 
   /**
    * The language mode of the current root node. This will match the languageIn

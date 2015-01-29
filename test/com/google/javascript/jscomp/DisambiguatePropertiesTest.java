@@ -15,6 +15,8 @@
  */
 package com.google.javascript.jscomp;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
@@ -956,7 +958,12 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
 
   public void testSkipNativeObjectMethod() {
     String externs = ""
-        + "/** @constructor \n @param {*} opt_v */ function Object(opt_v) {}"
+        + "/**"
+        + " * @constructor\n"
+        + " * @param {*} opt_v\n"
+        + " * @return {!Object}\n"
+        + " */\n"
+        + "function Object(opt_v) {}"
         + "Object.prototype.hasOwnProperty;";
     String js = ""
         + "/** @constructor */ function Foo(){};"
@@ -1259,7 +1266,7 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
   public void testErrorOnProtectedProperty() {
     test("function addSingletonGetter(foo) { foo.foobar = 'a'; };", null,
          DisambiguateProperties.Warnings.INVALIDATION);
-    assertTrue(getLastCompiler().getErrors()[0].toString().contains("foobar"));
+    assertThat(getLastCompiler().getErrors()[0].toString()).contains("foobar");
   }
 
   public void testMismatchForbiddenInvalidation() {
@@ -1268,8 +1275,7 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
          "/** @return {number} */ function g() { return new F(); }",
          null,
          DisambiguateProperties.Warnings.INVALIDATION);
-    assertTrue(getLastCompiler().getErrors()[0].toString()
-        .contains("Consider fixing errors"));
+    assertThat(getLastCompiler().getErrors()[0].toString()).contains("Consider fixing errors");
   }
 
   public void testUnionTypeInvalidationError() {
@@ -1293,9 +1299,8 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
     test(
         externs, js, "",
         DisambiguateProperties.Warnings.INVALIDATION_ON_TYPE, null);
-    assertTrue(getLastCompiler().getErrors()[0].toString()
-        .contains("foobar"));
-   }
+    assertThat(getLastCompiler().getErrors()[0].toString()).contains("foobar");
+  }
 
   public void runFindHighestTypeInChain() {
     // Check that this doesn't go into an infinite loop.

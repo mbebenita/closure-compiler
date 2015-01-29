@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
@@ -50,7 +52,7 @@ public abstract class CompilerTestCase extends TestCase  {
   private final List<SourceFile> externsInputs;
 
   /** Whether to compare input and output as trees instead of strings */
-  private final boolean compareAsTree;
+  private boolean compareAsTree;
 
   /** Whether to parse type info from JSDoc comments */
   protected boolean parseTypeInfo;
@@ -64,6 +66,9 @@ public abstract class CompilerTestCase extends TestCase  {
   /** True iff closure pass runs before pass being tested. */
   private boolean closurePassEnabled = false;
 
+  /** Whether the closure pass is run on the expected JS. */
+  private boolean closurePassEnabledForExpected = false;
+
   /** True iff type checking pass runs before pass being tested. */
   private boolean typeCheckEnabled = false;
 
@@ -75,9 +80,6 @@ public abstract class CompilerTestCase extends TestCase  {
 
   /** Whether to scan externs for property names. */
   private boolean gatherExternPropertiesEnabled = false;
-
-  /** Whether types in externs should also be scanned for property names. */
-  private boolean gatherExternsFromTypes = false;
 
   /** Whether the Normalize pass runs before pass being tested. */
   private boolean normalizeEnabled = false;
@@ -201,10 +203,9 @@ public abstract class CompilerTestCase extends TestCase  {
 
     // This doesn't affect whether checkSymbols is run--it just affects
     // whether variable warnings are filtered.
-    options.checkSymbols = true;
+    options.setCheckSymbols(true);
 
-    options.setWarningLevel(
-        DiagnosticGroups.MISSING_PROPERTIES, CheckLevel.WARNING);
+    options.setWarningLevel(DiagnosticGroups.MISSING_PROPERTIES, CheckLevel.WARNING);
     options.setWarningLevel(
         DiagnosticGroups.INVALID_CASTS, CheckLevel.WARNING);
     options.setCodingConvention(getCodingConvention());
@@ -305,6 +306,10 @@ public abstract class CompilerTestCase extends TestCase  {
     closurePassEnabled = true;
   }
 
+  void enableClosurePassForExpected() {
+    closurePassEnabledForExpected = true;
+  }
+
   /**
    * Perform AST normalization before running the test pass, and anti-normalize
    * after running it.
@@ -359,19 +364,7 @@ public abstract class CompilerTestCase extends TestCase  {
    * Scan externs for properties that should not be renamed.
    */
   void enableGatherExternProperties() {
-    // By default do not look at the types.
-    enableGatherExternProperties(false);
-  }
-
-  /**
-   * Scan externs for properties that should not be renamed.
-   *
-   * @param gatherExternsFromTypes Whether to gather externs from properties
-   *     defined in types (record types).
-   */
-  void enableGatherExternProperties(boolean gatherExternsFromTypes) {
     gatherExternPropertiesEnabled = true;
-    this.gatherExternsFromTypes = gatherExternsFromTypes;
   }
 
   /**
@@ -379,6 +372,13 @@ public abstract class CompilerTestCase extends TestCase  {
    */
   protected void enableAstValidation(boolean validate) {
     astValidationEnabled = validate;
+  }
+
+  /**
+   * Whether to compare the expected output as a tree or string.
+   */
+  protected void enableCompareAsTree(boolean compareAsTree) {
+    this.compareAsTree = compareAsTree;
   }
 
   /** Whether we should ignore parse warnings for the current test method. */
@@ -390,8 +390,7 @@ public abstract class CompilerTestCase extends TestCase  {
   private static TypeCheck createTypeCheck(Compiler compiler,
       CheckLevel level) {
     ReverseAbstractInterpreter rai =
-        new SemanticReverseAbstractInterpreter(compiler.getCodingConvention(),
-            compiler.getTypeRegistry());
+        new SemanticReverseAbstractInterpreter(compiler.getTypeRegistry());
 
     return new TypeCheck(compiler, rai, compiler.getTypeRegistry(), level);
   }
@@ -534,7 +533,7 @@ public abstract class CompilerTestCase extends TestCase  {
     options.setLanguageIn(acceptedLanguage);
     // Note that in this context, turning on the checkTypes option won't
     // actually cause the type check to run.
-    options.checkTypes = parseTypeInfo;
+    options.setCheckTypes(parseTypeInfo);
     compiler.init(externs, js, options);
 
     BaseJSTypeTestCase.addNativeProperties(compiler.getTypeRegistry());
@@ -810,9 +809,29 @@ public abstract class CompilerTestCase extends TestCase  {
    */
   public void testSame(String externs, String js, DiagnosticType warning,
                        String description) {
+    testSame(externs, js, warning, description, false);
+  }
+
+  /**
+   * Verifies that the compiler pass's JS output is the same as its input
+   * and (optionally) that an expected warning and description is issued.
+   *
+   * @param externs Externs input
+   * @param js Input and output
+   * @param warning Expected warning, or null if no warning is expected
+   * @param description The description of the expected warning,
+   *      or null if no warning is expected or if the warning's description
+   *      should not be examined
+   */
+  public void testSame(String externs, String js, DiagnosticType type,
+                       String description, boolean error) {
     List<SourceFile> externsInputs = ImmutableList.of(
         SourceFile.fromCode("externs", externs));
-    test(externsInputs, js, js, null, warning, description);
+    if (error) {
+      test(externsInputs, js, js, type, null, description);
+    } else {
+      test(externsInputs, js, js, null, type, description);
+    }
   }
 
   /**
@@ -1018,7 +1037,7 @@ public abstract class CompilerTestCase extends TestCase  {
         }
 
         if (gatherExternPropertiesEnabled && i == 0) {
-          (new GatherExternProperties(compiler, gatherExternsFromTypes))
+          (new GatherExternProperties(compiler))
               .process(externsRoot, mainRoot);
         }
 
@@ -1066,7 +1085,7 @@ public abstract class CompilerTestCase extends TestCase  {
       JSError[] stErrors = symbolTableErrorManager.getErrors();
       if (expectedSymbolTableError != null) {
         assertEquals("There should be one error.", 1, stErrors.length);
-        assertEquals(expectedSymbolTableError, stErrors[0].getType());
+        assertThat(stErrors[0].getType()).isEqualTo(expectedSymbolTableError);
       } else {
         assertEquals("Unexpected symbol table error(s): " +
             Joiner.on("\n").join(stErrors),
@@ -1083,7 +1102,7 @@ public abstract class CompilerTestCase extends TestCase  {
         for (int i = 0; i < numRepetitions; ++i) {
           JSError[] warnings = errorManagers[i].getWarnings();
           JSError actual = warnings[0];
-          assertEquals(warning, actual.getType());
+          assertThat(actual.getType()).isEqualTo(warning);
 
           // Make sure that source information is always provided.
           if (!allowSourcelessWarnings) {
@@ -1096,7 +1115,7 @@ public abstract class CompilerTestCase extends TestCase  {
           }
 
           if (description != null) {
-            assertEquals(description, actual.description);
+            assertThat(actual.description).isEqualTo(description);
           }
         }
       }
@@ -1154,8 +1173,7 @@ public abstract class CompilerTestCase extends TestCase  {
               throw new RuntimeException("failed to get source code", e);
             }
           }
-          assertEquals(
-              Joiner.on("").join(expectedSources), compiler.toSource(mainRoot));
+          assertThat(compiler.toSource(mainRoot)).isEqualTo(Joiner.on("").join(expectedSources));
         }
       }
 
@@ -1243,6 +1261,11 @@ public abstract class CompilerTestCase extends TestCase  {
       Normalize normalize = new Normalize(compiler, false);
       normalize.process(externsRoot, mainRoot);
     }
+
+    if (closurePassEnabled && closurePassEnabledForExpected && !compiler.hasErrors()) {
+      new ProcessClosurePrimitives(compiler, null, CheckLevel.ERROR, false)
+          .process(null, mainRoot);
+    }
     return mainRoot;
   }
 
@@ -1260,7 +1283,7 @@ public abstract class CompilerTestCase extends TestCase  {
         ImmutableList.of(SourceFile.fromCode("input", input)),
         options);
     compiler.parseInputs();
-    assertFalse(compiler.hasErrors());
+    assertThat(compiler.hasErrors()).isFalse();
 
     Node externsAndJs = compiler.getRoot();
     Node root = externsAndJs.getLastChild();
@@ -1268,14 +1291,27 @@ public abstract class CompilerTestCase extends TestCase  {
     Node externs = externsAndJs.getFirstChild();
 
     Node expected = compiler.parseTestCode(expectedExtern);
-    assertFalse(compiler.hasErrors());
+    assertThat(compiler.hasErrors()).isFalse();
 
     (getProcessor(compiler)).process(externs, root);
 
-    String externsCode = compiler.toSource(externs);
-    String expectedCode = compiler.toSource(expected);
-
-    assertEquals(expectedCode, externsCode);
+    if (compareAsTree) {
+      // Expected output parsed without implied block.
+      Preconditions.checkState(externs.isBlock());
+      Preconditions.checkState(compareJsDoc);
+      Preconditions.checkState(externs.hasOneChild(),
+          "Compare as tree only works when output has a single script.");
+      externs = externs.getFirstChild();
+      String explanation = expected.checkTreeEqualsIncludingJsDoc(externs);
+      assertNull(
+          "\nExpected: " + compiler.toSource(expected) +
+          "\nResult:   " + compiler.toSource(externs) +
+          "\n" + explanation, explanation);
+    } else {
+      String externsCode = compiler.toSource(externs);
+      String expectedCode = compiler.toSource(expected);
+      assertThat(externsCode).isEqualTo(expectedCode);
+    }
   }
 
   protected Node parseExpectedJs(String expected) {
@@ -1346,8 +1382,8 @@ public abstract class CompilerTestCase extends TestCase  {
     return modules;
   }
 
-  private static class BlackHoleErrorManager extends BasicErrorManager {
-    private BlackHoleErrorManager(Compiler compiler) {
+  static class BlackHoleErrorManager extends BasicErrorManager {
+    BlackHoleErrorManager(Compiler compiler) {
       compiler.setErrorManager(this);
     }
 

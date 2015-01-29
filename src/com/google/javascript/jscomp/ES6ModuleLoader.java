@@ -18,6 +18,7 @@ package com.google.javascript.jscomp;
 
 import com.google.common.collect.Maps;
 
+import java.io.File;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Map;
@@ -34,6 +35,11 @@ abstract class ES6ModuleLoader {
    * platforms.
    */
   static final String MODULE_SLASH = "/";
+
+  /**
+   * When a module resolves to a directory, this index file is checked for.
+   */
+  static final String INDEX_FILE = "index.js";
 
   /**
    * Whether this is relative to the current file, or a top-level identifier.
@@ -73,14 +79,7 @@ abstract class ES6ModuleLoader {
   /**
    * Error thrown when a load fails.
    */
-  static class LoadFailedException extends Exception {
-    final String loadAddress;
-
-    LoadFailedException(String reason, String loadAddress) {
-      super(reason);
-      this.loadAddress = loadAddress;
-    }
-  }
+  static class LoadFailedException extends Exception {}
 
   /**
    * A naive module loader treats all module references as direct file paths.
@@ -101,14 +100,14 @@ abstract class ES6ModuleLoader {
   }
 
   private static class NaiveModuleLoader extends ES6ModuleLoader {
-    private final AbstractCompiler compiler;
     private final Map<String, CompilerInput> inputsByAddress =
         Maps.newHashMap();
     private final String moduleRoot;
+    private final URI moduleRootURI;
 
     private NaiveModuleLoader(AbstractCompiler compiler, String moduleRoot) {
-      this.compiler = compiler;
       this.moduleRoot = moduleRoot;
+      this.moduleRootURI = createUri(moduleRoot);
 
       // Precompute the module name of each source file.
       for (CompilerInput input : compiler.getInputsInOrder()) {
@@ -118,11 +117,10 @@ abstract class ES6ModuleLoader {
 
     @Override
     String locate(String name, CompilerInput referrer) {
-      if (isRelativeIdentifier(name)) {
-        return convertSourceUriToModuleAddress(
-            createUri(referrer).resolve(createUri(name)));
-      }
-      return createUri(name).normalize().toString();
+      URI base = isRelativeIdentifier(name) ? createUri(referrer)
+          : moduleRootURI;
+
+      return convertSourceUriToModuleAddress(base.resolve(createUri(name)));
     }
 
     @Override
@@ -150,8 +148,22 @@ abstract class ES6ModuleLoader {
       }
     }
 
+    private String resolveInFileSystem(String filename) {
+      File f = new File(filename);
+
+      // Resolve index.js files within directories.
+      if (f.exists() && f.isDirectory()) {
+        File index = new File(f, INDEX_FILE);
+        if (index.exists()) {
+          return moduleRootURI.relativize(index.toURI()).getPath();
+        }
+      }
+
+      return filename;
+    }
+
     private String convertSourceUriToModuleAddress(URI uri) {
-      String filename = uri.normalize().toString();
+      String filename = resolveInFileSystem(uri.normalize().toString());
 
       // The DOS command shell will normalize "/" to "\", so we have to
       // wrestle it back to conform the the module standard.

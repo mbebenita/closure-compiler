@@ -39,12 +39,15 @@
 
 package com.google.javascript.rhino.testing;
 
+import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertEquals;
+
 import com.google.common.collect.Iterables;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.StaticScope;
 
-import junit.framework.Assert;
+import org.junit.Assert;
 
 import java.util.Iterator;
 
@@ -97,9 +100,9 @@ public class Asserts {
   }
 
   public static void assertTypeEquals(String message, JSType a, JSType b) {
-    Assert.assertTrue(
+    assertEquals(
         "Both types must be null, or both must be non-null " + a + "," + b,
-        (a == null) == (b == null));
+        (b == null), (a == null));
     if (a == null) {
       return;
     }
@@ -119,7 +122,7 @@ public class Asserts {
 
   public static <T extends JSType, S extends JSType> void
       assertTypeCollectionEquals(Iterable<T> a, Iterable<S> b) {
-    Assert.assertEquals(Iterables.size(a), Iterables.size(b));
+    assertThat(b).hasSize(Iterables.size(a));
     Iterator<T> aIterator = a.iterator();
     Iterator<S> bIterator = b.iterator();
     while (aIterator.hasNext()) {

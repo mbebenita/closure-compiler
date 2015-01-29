@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -44,7 +46,8 @@ public class ReplaceStringsTest extends CompilerTestCase {
       "goog.debug.Logger.getLogger(?)",
       "goog.debug.Logger.prototype.info(?)",
       "goog.log.getLogger(?)",
-      "goog.log.info(,?)"
+      "goog.log.info(,?)",
+      "goog.log.multiString(,?,?,)"
       );
 
   private static final String EXTERNS =
@@ -63,7 +66,8 @@ public class ReplaceStringsTest extends CompilerTestCase {
     "goog.debug.Logger.getLogger = function(name){};\n" +
     "goog.log = {}\n" +
     "goog.log.getLogger = function(name){};\n" +
-    "goog.log.info = function(logger, msg, opt_ex) {};\n"
+    "goog.log.info = function(logger, msg, opt_ex) {};\n" +
+    "goog.log.multiString = function(logger, replace1, replace2, keep) {};\n"
     ;
 
   public ReplaceStringsTest() {
@@ -101,7 +105,7 @@ public class ReplaceStringsTest extends CompilerTestCase {
           Map<String, CheckLevel> propertiesToErrorFor = new HashMap<>();
           propertiesToErrorFor.put("foobar", CheckLevel.ERROR);
 
-          new CollapseProperties(compiler, true, true).process(externs, js);
+          new CollapseProperties(compiler, true).process(externs, js);
           if (runDisambiguateProperties) {
             SourceInformationAnnotator sia =
                 new SourceInformationAnnotator(
@@ -437,6 +441,20 @@ public class ReplaceStringsTest extends CompilerTestCase {
             "b", "Some message"});
   }
 
+  public void testLoggerWithSomeParametersNotReplaced() {
+    testDebugStrings(
+        "var x = {};" +
+        "x.logger_ = goog.log.getLogger('foo');" +
+        "goog.log.multiString(x.logger_, 'Some message', 'Some message2', " +
+            "'Do not replace');",
+        "var x$logger_ = goog.log.getLogger('a');" +
+        "goog.log.multiString(x$logger_, 'b', 'c', 'Do not replace');",
+        new String[] {
+            "a", "foo",
+            "b", "Some message",
+            "c", "Some message2"});
+  }
+
   public void testWithDisambiguateProperties() throws Exception {
     runDisambiguateProperties = true;
     functionsToInspect.add("A.prototype.f(?)");
@@ -485,7 +503,7 @@ public class ReplaceStringsTest extends CompilerTestCase {
 
     List<Result> results = pass.getResult();
     assertEquals(0, substitutedStrings.length % 2);
-    assertEquals(substitutedStrings.length / 2, results.size());
+    assertThat(results).hasSize(substitutedStrings.length / 2);
 
     // Verify that substituted strings are decoded correctly.
     for (int i = 0; i < substitutedStrings.length; i += 2) {

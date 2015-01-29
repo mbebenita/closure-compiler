@@ -23,6 +23,7 @@ import static com.google.javascript.jscomp.ProcessClosurePrimitives.EXPECTED_OBJ
 import static com.google.javascript.jscomp.ProcessClosurePrimitives.FUNCTION_NAMESPACE_ERROR;
 import static com.google.javascript.jscomp.ProcessClosurePrimitives.GOOG_BASE_CLASS_ERROR;
 import static com.google.javascript.jscomp.ProcessClosurePrimitives.INVALID_ARGUMENT_ERROR;
+import static com.google.javascript.jscomp.ProcessClosurePrimitives.INVALID_CLOSURE_CALL_ERROR;
 import static com.google.javascript.jscomp.ProcessClosurePrimitives.INVALID_CSS_RENAMING_MAP;
 import static com.google.javascript.jscomp.ProcessClosurePrimitives.INVALID_DEFINE_NAME_ERROR;
 import static com.google.javascript.jscomp.ProcessClosurePrimitives.INVALID_PROVIDE_ERROR;
@@ -33,8 +34,10 @@ import static com.google.javascript.jscomp.ProcessClosurePrimitives.MISSING_PROV
 import static com.google.javascript.jscomp.ProcessClosurePrimitives.NON_STRING_PASSED_TO_SET_CSS_NAME_MAPPING_ERROR;
 import static com.google.javascript.jscomp.ProcessClosurePrimitives.NULL_ARGUMENT_ERROR;
 import static com.google.javascript.jscomp.ProcessClosurePrimitives.TOO_MANY_ARGUMENTS_ERROR;
+import static com.google.javascript.jscomp.ProcessClosurePrimitives.WEAK_NAMESPACE_TYPE;
 import static com.google.javascript.jscomp.ProcessClosurePrimitives.XMODULE_REQUIRE_ERROR;
 
+import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.Node;
 
 /**
@@ -279,6 +282,25 @@ public class ProcessClosurePrimitivesTest extends CompilerTestCase {
         DUPLICATE_NAMESPACE_ERROR);
     test("goog.provide('foo.bar'); goog.provide('foo'); goog.provide('foo');",
         "", DUPLICATE_NAMESPACE_ERROR);
+  }
+
+  public void testProvideErrorCases2() {
+    test("goog.provide('foo'); /** @type {Object} */ var foo = {};",
+         "var foo={};", null, WEAK_NAMESPACE_TYPE);
+    test("goog.provide('foo'); /** @type {!Object} */ var foo = {};",
+        "var foo={};", null, WEAK_NAMESPACE_TYPE);
+    test("goog.provide('foo.bar'); /** @type {Object} */ foo.bar = {};",
+        "var foo={};foo.bar={};", null, WEAK_NAMESPACE_TYPE);
+    test("goog.provide('foo.bar'); /** @type {!Object} */ foo.bar = {};",
+        "var foo={};foo.bar={};", null, WEAK_NAMESPACE_TYPE);
+
+    test("goog.provide('foo'); /** @type {Object.<string>} */ var foo = {};",
+        "var foo={};");
+  }
+
+  public void testProvideValidObjectType() {
+    test("goog.provide('foo'); /** @type {Object.<string>} */ var foo = {};",
+        "var foo={};");
   }
 
   public void testRemovalOfRequires() {
@@ -640,7 +662,34 @@ public class ProcessClosurePrimitivesTest extends CompilerTestCase {
   }
 
   public void testInvalidProvide() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT5);
+    test("goog.provide('a.class');", "var a = {}; a.class = {};");
+    test("goog.provide('class.a');", null, INVALID_PROVIDE_ERROR);
+
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT3);
     test("goog.provide('a.class');", null, INVALID_PROVIDE_ERROR);
+    test("goog.provide('class.a');", null, INVALID_PROVIDE_ERROR);
+  }
+
+  public void testInvalidRequire() {
+    test("goog.provide('a.b'); goog.require('a.b');", "var a = {}; a.b = {};");
+    test("goog.provide('a.b'); var x = x || goog.require('a.b');",
+        null, INVALID_CLOSURE_CALL_ERROR);
+    test("goog.provide('a.b'); x = goog.require('a.b');",
+        null, INVALID_CLOSURE_CALL_ERROR);
+    test("goog.provide('a.b'); function f() { goog.require('a.b'); }",
+        null, INVALID_CLOSURE_CALL_ERROR);
+  }
+
+  public void testValidGoogMethod() {
+    testSame("function f() { goog.isDef('a.b'); }");
+    testSame("function f() { goog.inherits(a, b); }");
+    testSame("function f() { goog.exportSymbol(a, b); }");
+    test("function f() { goog.setCssNameMapping({}); }", "function f() {}");
+    testSame("x || goog.isDef('a.b');");
+    testSame("x || goog.inherits(a, b);");
+    testSame("x || goog.exportSymbol(a, b);");
+    testSame("x || void 0");
   }
 
   private static final String METHOD_FORMAT =

@@ -22,6 +22,7 @@
  *  http://www.w3.org/TR/REC-DOM-Level-1/ecma-script-language-binding.html
  *
  * @externs
+ * @author stevey@google.com (Steve Yegge)
  */
 // All the provided definitions have been type annotated.
 
@@ -215,7 +216,6 @@ var TraversalDocument;
 function NodeFilter() {}
 
 /* Constants for whatToShow */
-/** @const {number} */ NodeFilter.SHOW_TEXT;
 /** @const {number} */ NodeFilter.SHOW_ALL;
 /** @const {number} */ NodeFilter.SHOW_ATTRIBUTE;
 /** @const {number} */ NodeFilter.SHOW_CDATA_SECTION;
@@ -466,7 +466,7 @@ HTMLLinkElement.prototype.target;
  */
 HTMLLinkElement.prototype.type;
 
-/** @override */
+/** @type {StyleSheet} */
 HTMLLinkElement.prototype.sheet;
 
 /**
@@ -577,7 +577,7 @@ HTMLStyleElement.prototype.media;
  */
 HTMLStyleElement.prototype.type;
 
-/** @override */
+/** @type {StyleSheet} */
 HTMLStyleElement.prototype.sheet;
 
 /**

@@ -64,7 +64,6 @@ class TypeValidator {
   private final AbstractCompiler compiler;
   private final JSTypeRegistry typeRegistry;
   private final JSType allValueTypes;
-  private boolean shouldReport = true;
   private final JSType nullOrUndefined;
   private final boolean reportUnnecessaryCasts;
 
@@ -189,10 +188,6 @@ class TypeValidator {
    */
   Iterable<TypeMismatch> getMismatches() {
     return mismatches;
-  }
-
-  void setShouldReport(boolean report) {
-    this.shouldReport = report;
   }
 
   // All non-private methods should have the form:
@@ -465,29 +460,6 @@ class TypeValidator {
               "formal parameter", ordinal,
               getReadableJSTypeName(callNode.getFirstChild(), false)),
           argType, paramType);
-    }
-  }
-
-  /**
-   * Expect that the first type can override a property of the second
-   * type.
-   *
-   * @param t The node traversal.
-   * @param n The node to issue warnings on.
-   * @param overridingType The overriding type.
-   * @param hiddenType The type of the property being overridden.
-   * @param propertyName The name of the property, for use in the
-   *     warning message.
-   * @param ownerType The type of the owner of the property, for use
-   *     in the warning message.
-   */
-  void expectCanOverride(NodeTraversal t, Node n, JSType overridingType,
-      JSType hiddenType, String propertyName, JSType ownerType) {
-    if (!overridingType.isSubtype(hiddenType)) {
-      registerMismatch(overridingType, hiddenType,
-          report(t.makeError(n, HIDDEN_PROPERTY_MISMATCH, propertyName,
-            ownerType.toString(), hiddenType.toString(),
-            overridingType.toString())));
     }
   }
 
@@ -835,7 +807,7 @@ class TypeValidator {
         if (objectType != null &&
             (objectType.getConstructor() != null ||
              objectType.isFunctionPrototypeType())) {
-          return objectType.toString() + "." + propName;
+          return objectType + "." + propName;
         }
       }
     }
@@ -872,9 +844,7 @@ class TypeValidator {
   }
 
   private JSError report(JSError error) {
-    if (shouldReport) {
-      compiler.report(error);
-    }
+    compiler.report(error);
     return error;
   }
 

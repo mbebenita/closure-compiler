@@ -79,9 +79,13 @@ class ScopedAliases implements HotSwapCompilerPass {
   private final AliasTransformationHandler transformationHandler;
 
   // Errors
-  static final DiagnosticType GOOG_SCOPE_USED_IMPROPERLY = DiagnosticType.error(
-      "JSC_GOOG_SCOPE_USED_IMPROPERLY",
+  static final DiagnosticType GOOG_SCOPE_MUST_BE_ALONE = DiagnosticType.error(
+      "JSC_GOOG_SCOPE_MUST_BE_ALONE",
       "The call to goog.scope must be alone in a single statement.");
+
+  static final DiagnosticType GOOG_SCOPE_MUST_BE_IN_GLOBAL_SCOPE = DiagnosticType.error(
+      "JSC_GOOG_SCOPE_MUST_BE_IN_GLOBAL_SCOPE",
+      "The call to goog.scope must be in the global scope.");
 
   static final DiagnosticType GOOG_SCOPE_HAS_BAD_PARAMETERS =
       DiagnosticType.error(
@@ -180,9 +184,8 @@ class ScopedAliases implements HotSwapCompilerPass {
         NodeUtil.tryMergeBlock(scopeClosureBlock);
       }
 
-      if (traversal.getAliasUsages().size() > 0 ||
-          traversal.getAliasDefinitionsInOrder().size() > 0 ||
-          traversal.getScopeCalls().size() > 0) {
+      if (!traversal.getAliasUsages().isEmpty() || !traversal.getAliasDefinitionsInOrder().isEmpty()
+          || !traversal.getScopeCalls().isEmpty()) {
         compiler.reportCodeChange();
       }
     }
@@ -243,7 +246,8 @@ class ScopedAliases implements HotSwapCompilerPass {
   }
 
 
-  private class Traversal implements NodeTraversal.ScopedCallback {
+  private class Traversal extends NodeTraversal.AbstractPostOrderCallback
+      implements NodeTraversal.ScopedCallback {
     // The job of this class is to collect these three data sets.
 
     // The order of this list determines the order that aliases are applied.
@@ -321,17 +325,6 @@ class ScopedAliases implements HotSwapCompilerPass {
         transformation = null;
         hasNamespaceShadows = false;
       }
-    }
-
-    @Override
-    public final boolean shouldTraverse(NodeTraversal t, Node n, Node parent) {
-      if (n.isFunction() && t.inGlobalScope()) {
-        // Do not traverse in to functions except for goog.scope functions.
-        if (parent == null || !isCallToScopeMethod(parent)) {
-          return false;
-        }
-      }
-      return true;
     }
 
     private SourcePosition<AliasTransformation> getSourceRegion(Node n) {
@@ -422,8 +415,8 @@ class ScopedAliases implements HotSwapCompilerPass {
           // Add $jscomp.scope.name = EXPR;
           // Make sure we copy over all the jsdoc and debug info.
           if (value != null || varDocInfo != null) {
-            Node newDecl = NodeUtil.newQualifiedNameNodeDeclaration(
-                compiler.getCodingConvention(),
+            Node newDecl = NodeUtil.newQNameDeclaration(
+                compiler,
                 globalName,
                 value,
                 varDocInfo)
@@ -441,8 +434,8 @@ class ScopedAliases implements HotSwapCompilerPass {
 
           // Rewrite "var name = EXPR;" to "var name = $jscomp.scope.name;"
           v.getNameNode().addChildToFront(
-              NodeUtil.newQualifiedNameNode(
-                  compiler.getCodingConvention(), globalName, n, name));
+              NodeUtil.newQName(
+                  compiler, globalName, n, name));
 
           recordAlias(v);
         } else {
@@ -509,7 +502,10 @@ class ScopedAliases implements HotSwapCompilerPass {
         preprocessorSymbolTable.addReference(n.getFirstChild());
       }
       if (!parent.isExprResult()) {
-        report(t, n, GOOG_SCOPE_USED_IMPROPERLY);
+        report(t, n, GOOG_SCOPE_MUST_BE_ALONE);
+      }
+      if (t.getScope().isLocal()) {
+        report(t, n, GOOG_SCOPE_MUST_BE_IN_GLOBAL_SCOPE);
       }
       if (n.getChildCount() != 2) {
         // The goog.scope call should have exactly 1 parameter.  The first
@@ -548,7 +544,8 @@ class ScopedAliases implements HotSwapCompilerPass {
       }
 
       // Validate the top-level of the goog.scope block.
-      if (t.getScopeDepth() == 2) {
+      if (t.getScopeDepth() == 2
+          && isCallToScopeMethod(t.getScope().getRootNode().getParent())) {
         if (aliasVar != null && NodeUtil.isLValue(n)) {
           if (aliasVar.getNode() == n) {
             aliasDefinitionsInOrder.add(n);

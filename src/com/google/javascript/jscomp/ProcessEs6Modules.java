@@ -17,13 +17,13 @@ package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.jscomp.ProcessCommonJSModules.FindGoogProvideOrGoogModule;
 import com.google.javascript.jscomp.Scope.Var;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfoBuilder;
-import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
@@ -45,11 +45,10 @@ import java.util.regex.Pattern;
  */
 public class ProcessEs6Modules extends AbstractPostOrderCallback {
   private static final String MODULE_SLASH = ES6ModuleLoader.MODULE_SLASH;
-  public static final String DEFAULT_FILENAME_PREFIX =
-      "." + ES6ModuleLoader.MODULE_SLASH;
 
   private static final String MODULE_NAME_SEPARATOR = "\\$";
   private static final String MODULE_NAME_PREFIX = "module$";
+  private static final String DEFAULT_EXPORT_NAME = "$jscompDefaultExport";
 
   private final ES6ModuleLoader loader;
 
@@ -69,7 +68,7 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
    */
   private Map<String, ModuleOriginalNamePair> importMap = new HashMap<>();
 
-  private Set<String> typedefs = new LinkedHashSet<>();
+  private Set<String> types = new LinkedHashSet<>();
 
   private Set<String> alreadyRequired = new HashSet<>();
 
@@ -115,25 +114,26 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
     }
   }
 
-  private void visitImport(NodeTraversal t, Node n, Node parent) {
-    String importName = n.getLastChild().getString();
+  private void visitImport(NodeTraversal t, Node importDecl, Node parent) {
+    String importName = importDecl.getLastChild().getString();
     String loadAddress = loader.locate(importName, t.getInput());
     try {
       loader.load(loadAddress);
     } catch (ES6ModuleLoader.LoadFailedException e) {
-      t.makeError(n, ES6ModuleLoader.LOAD_ERROR, importName);
+      compiler.report(t.makeError(
+          importDecl, ES6ModuleLoader.LOAD_ERROR, importName));
     }
 
     String moduleName = toModuleName(loadAddress);
     Set<String> namesToRequire = new LinkedHashSet<>();
-    for (Node child : n.children()) {
+    for (Node child : importDecl.children()) {
       if (child.isEmpty() || child.isString()) {
         continue;
       } else if (child.isName()) { // import a from "mod"
         importMap.put(child.getString(),
-            new ModuleOriginalNamePair(moduleName, child.getString()));
-        namesToRequire.add(child.getString());
-      } else {
+            new ModuleOriginalNamePair(moduleName, "default"));
+        namesToRequire.add("default");
+      } else if (child.getType() == Token.IMPORT_SPECS) {
         for (Node grandChild : child.children()) {
           String origName = grandChild.getFirstChild().getString();
           namesToRequire.add(origName);
@@ -147,46 +147,69 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
                 new ModuleOriginalNamePair(moduleName, origName));
           }
         }
+      } else {
+        Preconditions.checkState(child.getType() == Token.IMPORT_STAR,
+            "Expected an IMPORT_STAR node, but was: %s", child);
+        importMap.put(
+            child.getString(),
+            new ModuleOriginalNamePair(moduleName, ""));
       }
     }
 
     Node script = NodeUtil.getEnclosingType(parent, Token.SCRIPT);
     // Emit goog.require call for the module.
-    if (!alreadyRequired.contains(moduleName)) {
-      alreadyRequired.add(moduleName);
-      script.addChildToFront(
-          IR.exprResult(IR.call(NodeUtil.newQualifiedNameNode(
-              compiler.getCodingConvention(), "goog.require"),
-              IR.string(moduleName))).copyInformationFromForTree(n));
+    if (alreadyRequired.add(moduleName)) {
+      Node require = IR.exprResult(
+          IR.call(NodeUtil.newQName(compiler, "goog.require"), IR.string(moduleName)));
+      require.copyInformationFromForTree(importDecl);
+      script.addChildToFront(require);
       if (reportDependencies) {
         t.getInput().addRequire(moduleName);
       }
     }
 
     for (String name : namesToRequire) {
-      script.addChildToFront(
-          IR.exprResult(IR.call(NodeUtil.newQualifiedNameNode(
-              compiler.getCodingConvention(), "goog.require"),
-              IR.string(moduleName + "." + name))).copyInformationFromForTree(n));
+      Node require = IR.exprResult(IR.call(NodeUtil.newQName(
+          compiler, "goog.require"),
+          IR.string(moduleName + "." + name)));
+      require.copyInformationFromForTree(importDecl);
+      script.addChildToFront(require);
       if (reportDependencies) {
         t.getInput().addRequire(moduleName + "." + name);
       }
     }
 
-    parent.removeChild(n);
+    parent.removeChild(importDecl);
     compiler.reportCodeChange();
   }
 
   private void visitExport(NodeTraversal t, Node n, Node parent) {
     if (n.getBooleanProp(Node.EXPORT_DEFAULT)) {
-      compiler.report(JSError.make(n, Es6ToEs3Converter.CANNOT_CONVERT_YET,
-          "Default export"));
+      Node var = IR.var(IR.name(DEFAULT_EXPORT_NAME), n.removeFirstChild());
+      var.setJSDocInfo(n.getJSDocInfo());
+      n.setJSDocInfo(null);
+      n.getParent().replaceChild(n, var);
+      exportMap.put("default", DEFAULT_EXPORT_NAME);
     } else if (n.getBooleanProp(Node.EXPORT_ALL_FROM)) {
       compiler.report(JSError.make(n, Es6ToEs3Converter.CANNOT_CONVERT_YET,
           "Wildcard export"));
     } else if (n.getChildCount() == 2) {
-      compiler.report(JSError.make(n, Es6ToEs3Converter.CANNOT_CONVERT_YET,
-          "Export with FromClause"));
+      //   export {x, y as z} from 'moduleIdentifier';
+      Node moduleIdentifier = n.getLastChild();
+      Node importNode = new Node(Token.IMPORT, moduleIdentifier.cloneNode());
+      importNode.copyInformationFrom(n);
+      parent.addChildBefore(importNode, n);
+      visit(t, importNode, parent);
+
+      String loadAddress = loader.locate(moduleIdentifier.getString(), t.getInput());
+      String moduleName = toModuleName(loadAddress);
+
+      for (Node exportSpec : n.getFirstChild().children()) {
+        String nameFromOtherModule = exportSpec.getFirstChild().getString();
+        String exportedName = exportSpec.getLastChild().getString();
+        exportMap.put(exportedName, moduleName + "." + nameFromOtherModule);
+      }
+      parent.removeChild(n);
     } else {
       if (n.getFirstChild().getType() == Token.EXPORT_SPECS) {
         for (Node exportSpec : n.getFirstChild().children()) {
@@ -206,7 +229,7 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
             break;
           }
           // Break out on "B" in "class A extends B"
-          if (n.getFirstChild().isClass() && i > 0) {
+          if (declaration.isClass() && i > 0) {
             break;
           }
           String name = maybeName.getString();
@@ -220,10 +243,12 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
           // TODO(moz): Currently we only record ES6 classes, need to handle
           // other kinds of type declarations too.
           if (declaration.isClass()) {
-            typedefs.add(name);
+            types.add(name);
           }
         }
-        parent.replaceChild(n, n.removeFirstChild());
+        declaration.setJSDocInfo(n.getJSDocInfo());
+        n.setJSDocInfo(null);
+        parent.replaceChild(n, declaration.detachFromParent());
       }
       compiler.reportCodeChange();
     }
@@ -239,67 +264,69 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
 
     String moduleName = toModuleName(loader.getLoadAddress(t.getInput()));
 
-    // Rename vars to not conflict in global scope.
-    NodeTraversal.traverse(compiler, script, new RenameGlobalVars(moduleName));
-
-    if (exportMap.isEmpty()) {
-      return;
+    if (!exportMap.isEmpty()) {
+      // Creates an export object for this module.
+      // var moduleName = {};
+      Node objectlit = IR.objectlit();
+      Node varNode = IR.var(IR.name(moduleName), objectlit)
+          .useSourceInfoIfMissingFromForTree(script);
+      script.addChildToBack(varNode);
     }
 
-    // Creates an export object for this module.
-    // var moduleName = {};
-    Node objectlit = IR.objectlit();
-    Node varNode = IR.var(IR.name(moduleName), objectlit)
-        .useSourceInfoIfMissingFromForTree(script);
-    script.addChildToBack(varNode);
-
-    // moduleName.foo = moduleName$$foo;
+    // moduleName.foo = foo;
     for (Map.Entry<String, String> entry : exportMap.entrySet()) {
       String exportedName = entry.getKey();
-      String withSuffix = entry.getValue() + "$$" + moduleName;
+      String withSuffix = entry.getValue();
       Node getProp = IR.getprop(IR.name(moduleName), IR.string(exportedName));
-      Node exprResult = IR.exprResult(IR.assign(
+      Node assign = IR.assign(
           getProp,
-          NodeUtil.newQualifiedNameNode(compiler.getCodingConvention(),
-              withSuffix))).useSourceInfoIfMissingFromForTree(script);
+          NodeUtil.newQName(compiler, withSuffix));
+      Node exprResult = IR.exprResult(assign)
+          .useSourceInfoIfMissingFromForTree(script);
+      // Hack: Remove this annotation, once type inference improves.
+      if (types.contains(exportedName)) {
+        JSDocInfoBuilder builder = new JSDocInfoBuilder(true);
+        builder.recordConstancy();
+        JSDocInfo info = builder.build(assign);
+        assign.setJSDocInfo(info);
+      }
       script.addChildToBack(exprResult);
     }
 
-    // Add @typedefs for the the type checker.
-    // /** @typedef {moduleName$$foo} */ moduleName.foo;
-    for (String name : typedefs) {
-      Node typedef = IR.getprop(IR.name(moduleName), IR.string(name));
-      JSDocInfoBuilder builder = new JSDocInfoBuilder(true);
-      builder.recordTypedef(new JSTypeExpression(
-          Node.newString(exportMap.get(name) + "$$" + moduleName),
-          t.getSourceName()));
-      JSDocInfo info = builder.build(typedef);
-      typedef.setJSDocInfo(info);
-      script.addChildToBack(IR.exprResult(typedef)
-          .useSourceInfoIfMissingFromForTree(varNode));
-    }
+    // Rename vars to not conflict in global scope.
+    NodeTraversal.traverse(compiler, script, new RenameGlobalVars(moduleName));
 
-    // Add goog.provide call.
-    Node googProvide = IR.exprResult(
-        IR.call(NodeUtil.newQualifiedNameNode(
-            compiler.getCodingConvention(), "goog.provide"),
-            IR.string(moduleName)));
-    script.addChildToFront(googProvide.copyInformationFromForTree(script));
-    if (reportDependencies) {
-      t.getInput().addProvide(moduleName);
-    }
-
-    for (String name : exportMap.keySet()) {
-      String qualifiedName = moduleName + "." + name;
-      script.addChildAfter(IR.exprResult(
-          IR.call(NodeUtil.newQualifiedNameNode(
-              compiler.getCodingConvention(), "goog.provide"),
-              IR.string(qualifiedName)))
-              .copyInformationFromForTree(script), googProvide);
+    if (!exportMap.isEmpty()) {
+      // Add goog.provide call.
+      Node googProvide = IR.exprResult(
+          IR.call(NodeUtil.newQName(compiler, "goog.provide"),
+              IR.string(moduleName)));
+      script.addChildToFront(googProvide.copyInformationFromForTree(script));
       if (reportDependencies) {
-        t.getInput().addProvide(qualifiedName);
+        t.getInput().addProvide(moduleName);
+      }
+
+      for (String name : exportMap.keySet()) {
+        String qualifiedName = moduleName + "." + name;
+        Node newGoogProvide = IR.exprResult(
+            IR.call(NodeUtil.newQName(compiler, "goog.provide"),
+                IR.string(qualifiedName)));
+        newGoogProvide.copyInformationFromForTree(script);
+        if (name.equals("default")) {
+          JSDocInfoBuilder jsDocInfo = script.getJSDocInfo() == null
+              ? new JSDocInfoBuilder(false)
+              : JSDocInfoBuilder.copyFrom(script.getJSDocInfo());
+          jsDocInfo.recordSuppressions(ImmutableSet.of("invalidProvide"));
+          script.setJSDocInfo(jsDocInfo.build(script));
+        }
+
+        script.addChildAfter(newGoogProvide, googProvide);
+        if (reportDependencies) {
+          t.getInput().addProvide(qualifiedName);
+        }
       }
     }
+
     exportMap.clear();
     compiler.reportCodeChange();
   }
@@ -357,9 +384,14 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
             parent.putBooleanProp(Node.FREE_CALL, false);
           }
           ModuleOriginalNamePair pair = importMap.get(name);
-          n.getParent().replaceChild(n,
-              IR.getprop(IR.name(pair.module), IR.string(pair.originalName))
-              .useSourceInfoIfMissingFromForTree(n));
+          if (pair.originalName.isEmpty()) {
+            n.getParent().replaceChild(
+                n, IR.name(pair.module).useSourceInfoIfMissingFromForTree(n));
+          } else {
+            n.getParent().replaceChild(n,
+                IR.getprop(IR.name(pair.module), IR.string(pair.originalName))
+                .useSourceInfoIfMissingFromForTree(n));
+          }
         }
       }
     }
@@ -372,7 +404,7 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
       if (typeNode.isString()) {
         String name = typeNode.getString();
         if (ES6ModuleLoader.isRelativeIdentifier(name)) {
-          int lastSlash = name.lastIndexOf("/");
+          int lastSlash = name.lastIndexOf('/');
           int endIndex = name.indexOf('.', lastSlash);
           String localTypeName = null;
           if (endIndex == -1) {
@@ -384,7 +416,8 @@ public class ProcessEs6Modules extends AbstractPostOrderCallback {
           String moduleName = name.substring(0, endIndex);
           String loadAddress = loader.locate(moduleName, t.getInput());
           if (loadAddress == null) {
-            t.makeError(typeNode, ES6ModuleLoader.LOAD_ERROR, moduleName);
+            compiler.report(t.makeError(
+                typeNode, ES6ModuleLoader.LOAD_ERROR, moduleName));
             return;
           }
 

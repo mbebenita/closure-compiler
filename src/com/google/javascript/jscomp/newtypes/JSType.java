@@ -23,6 +23,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -58,6 +59,65 @@ public abstract class JSType {
   protected static final int BOOLEAN_MASK = TRUE_MASK | FALSE_MASK;
   protected static final int TOP_SCALAR_MASK =
       NUMBER_MASK | STRING_MASK | BOOLEAN_MASK | NULL_MASK | UNDEFINED_MASK;
+
+  static final Map<String, JSType> MAP_TO_UNKNOWN =
+      new Map<String, JSType>() {
+    public void clear() {
+      throw new UnsupportedOperationException();
+    }
+
+    public boolean containsKey(Object k) {
+      return true;
+    }
+
+    public boolean containsValue(Object v) {
+      return v == JSType.UNKNOWN;
+    }
+
+    public Set<Map.Entry<String, JSType>> entrySet() {
+      throw new UnsupportedOperationException();
+    }
+
+    public JSType get(Object k) {
+      return JSType.UNKNOWN;
+    }
+
+    public boolean isEmpty() {
+      return false;
+    }
+
+    public Set<String> keySet() {
+      throw new UnsupportedOperationException();
+    }
+
+    public JSType put(String k, JSType v) {
+      throw new UnsupportedOperationException();
+    }
+
+    public void putAll(Map<? extends String, ? extends JSType> m) {
+      throw new UnsupportedOperationException();
+    }
+
+    public JSType remove(Object k) {
+      throw new UnsupportedOperationException();
+    }
+
+    public int size() {
+      throw new UnsupportedOperationException();
+    }
+
+    public Collection<JSType> values() {
+      return ImmutableSet.of(JSType.UNKNOWN);
+    }
+
+    public int hashCode() {
+      throw new UnsupportedOperationException();
+    }
+
+    public boolean equals(Object o) {
+      return o == this;
+    }
+  };
 
   // Used only for development
   public static boolean mockToString = false;
@@ -103,16 +163,16 @@ public abstract class JSType {
 
   protected abstract int getMask();
 
-  protected abstract ImmutableSet<ObjectType> getObjs();
+  abstract ImmutableSet<ObjectType> getObjs();
 
   protected abstract String getTypeVar();
 
   protected abstract ImmutableSet<EnumType> getEnums();
 
   // Factory method for wrapping a function in a JSType
-  public static JSType fromFunctionType(FunctionType fn) {
+  static JSType fromFunctionType(FunctionType fn, NominalType fnNominal) {
     return makeType(NON_SCALAR_MASK,
-        ImmutableSet.of(ObjectType.fromFunction(fn)), null, null);
+        ImmutableSet.of(ObjectType.fromFunction(fn, fnNominal)), null, null);
   }
 
   public static JSType fromObjectType(ObjectType obj) {
@@ -165,8 +225,6 @@ public abstract class JSType {
   public static final JSType TOP_OBJECT = fromObjectType(ObjectType.TOP_OBJECT);
   public static final JSType TOP_STRUCT = fromObjectType(ObjectType.TOP_STRUCT);
   public static final JSType TOP_DICT = fromObjectType(ObjectType.TOP_DICT);
-  private static JSType TOP_FUNCTION = null;
-  private static JSType QMARK_FUNCTION = null;
 
   // Some commonly used types
   public static final JSType NULL_OR_UNDEF =
@@ -179,21 +237,6 @@ public abstract class JSType {
       TRUE_MASK | FALSE_MASK | NUMBER_MASK | STRING_MASK | NULL_MASK |
       UNDEFINED_MASK | NON_SCALAR_MASK,
       ImmutableSet.of(ObjectType.TOP_OBJECT), null, null);
-
-  public static JSType topFunction() {
-    if (TOP_FUNCTION == null) {
-      TOP_FUNCTION = fromFunctionType(FunctionType.TOP_FUNCTION);
-    }
-    return TOP_FUNCTION;
-  }
-
-  // Corresponds to Function, which is a subtype and supertype of all functions.
-  static JSType qmarkFunction() {
-    if (QMARK_FUNCTION == null) {
-      QMARK_FUNCTION = fromFunctionType(FunctionType.QMARK_FUNCTION);
-    }
-    return QMARK_FUNCTION;
-  }
 
   public boolean isTop() {
     return TOP_MASK == getMask();
@@ -217,6 +260,10 @@ public abstract class JSType {
 
   public boolean isBoolean() {
     return (getMask() & ~BOOLEAN_MASK) == 0 && (getMask() & BOOLEAN_MASK) != 0;
+  }
+
+  public boolean isString() {
+    return STRING_MASK == getMask();
   }
 
   public boolean isNullOrUndef() {
@@ -255,11 +302,6 @@ public abstract class JSType {
 
   boolean isTypeVariable() {
     return (getMask() & TYPEVAR_MASK) != 0 && (getMask() & ~TYPEVAR_MASK) == 0;
-  }
-
-  public boolean isRecordType() {
-    return getMask() == NON_SCALAR_MASK && getObjs().size() == 1
-        && Iterables.getOnlyElement(getObjs()).isRecordType();
   }
 
   public boolean isStruct() {
@@ -323,7 +365,8 @@ public abstract class JSType {
   public static boolean areCompatibleScalarTypes(JSType lhs, JSType rhs) {
     Preconditions.checkArgument(
         lhs.isSubtypeOf(TOP_SCALAR) || rhs.isSubtypeOf(TOP_SCALAR));
-    return lhs.isBottom() || rhs.isBottom() || lhs.isUnknown() || rhs.isUnknown()
+    return lhs.isBottom() || rhs.isBottom()
+        || lhs.isUnknown() || rhs.isUnknown()
         || (lhs.isBoolean() && rhs.isBoolean()) || lhs.equals(rhs);
   }
 
@@ -331,6 +374,45 @@ public abstract class JSType {
   public JSType getEnumeratedType() {
     return isEnumElement() ?
         Iterables.getOnlyElement(getEnums()).getEnumeratedType() : null;
+  }
+
+  public JSType autobox(JSTypes commonTypes) {
+    if (isTop() || isUnknown()) {
+      return this;
+    }
+    int mask = getMask();
+    if ((mask & (NUMBER_MASK | STRING_MASK | BOOLEAN_MASK)) == BOTTOM_MASK) {
+      return this;
+    }
+    switch (mask) {
+      case NUMBER_MASK:
+        return commonTypes.getNumberInstance();
+      case BOOLEAN_MASK:
+      case TRUE_MASK:
+      case FALSE_MASK:
+        return commonTypes.getBooleanInstance();
+      case STRING_MASK:
+        return commonTypes.getStringInstance();
+    }
+    // For each set bit, add the corresponding obj to the new objs
+    // construct and return the new type.
+    // Don't bother autoboxing enums.
+    ImmutableSet.Builder<ObjectType> builder = ImmutableSet.builder();
+    if (getObjs() != null) {
+      builder.addAll(getObjs());
+    }
+    if ((mask & NUMBER_MASK) != 0) {
+      builder.add(commonTypes.getNumberInstanceObjType());
+    }
+    if ((mask & STRING_MASK) != 0) {
+      builder.add(commonTypes.getStringInstanceObjType());
+    }
+    if ((mask & BOOLEAN_MASK) != 0) { // may have truthy or falsy
+      builder.add(commonTypes.getBooleanInstanceObjType());
+    }
+    return makeType(
+        mask & ~(NUMBER_MASK | STRING_MASK | BOOLEAN_MASK),
+        builder.build(), getTypeVar(), getEnums());
   }
 
   static JSType nullAcceptingJoin(JSType t1, JSType t2) {
@@ -396,6 +478,10 @@ public abstract class JSType {
           concreteTypes.get(getTypeVar()) : fromTypeVar(getTypeVar()));
     }
     return current;
+  }
+
+  public JSType substituteGenericsWithUnknown() {
+    return substituteGenerics(MAP_TO_UNKNOWN);
   }
 
   private static void updateTypemap(
@@ -570,9 +656,9 @@ public abstract class JSType {
       return thisTypevar.equals(otherTypevar) && getMask() == other.getMask();
     } else {
       // this is (T | ...)
-      int templateMask = 0;
+      int templateMask = BOTTOM_MASK;
       int thisScalarBits = getMask() & ~NON_SCALAR_MASK & ~TYPEVAR_MASK;
-      int otherScalarBits = other.getMask() & ~NON_SCALAR_MASK & ~TYPEVAR_MASK;
+      int otherScalarBits = other.getMask() & ~NON_SCALAR_MASK;
       templateMask |= otherScalarBits & ~thisScalarBits;
 
       if (templateMask == BOTTOM_MASK) {
@@ -596,7 +682,7 @@ public abstract class JSType {
   // Specialize might still not be symmetric however, b/c of truthy/falsy.
 
   public JSType specialize(JSType other) {
-    if (other.isTop() || other.isUnknown()) {
+    if (other.isTop() || other.isUnknown() || this == other) {
       return this;
     } else if (other.isTruthy()) {
       return makeTruthy();
@@ -877,7 +963,8 @@ public abstract class JSType {
     if (isBottom() || isUnknown()) {
       return UNKNOWN;
     }
-    Preconditions.checkState(getObjs() != null || getEnums() != null);
+    Preconditions.checkState(getObjs() != null || getEnums() != null,
+        "Can't getProp of type %s", this);
     return nullAcceptingJoin(
         TypeWithPropertiesStatics.getProp(getObjs(), qname),
         TypeWithPropertiesStatics.getProp(getEnums(), qname));
@@ -925,10 +1012,9 @@ public abstract class JSType {
 
   public JSType withProperty(QualifiedName qname, JSType type) {
     Preconditions.checkArgument(type != null);
-    if (isUnknown() || isBottom()) {
+    if (isUnknown() || isBottom() || getObjs() == null) {
       return this;
     }
-    Preconditions.checkState(getObjs() != null);
     return makeType(getMask(), ObjectType.withProperty(getObjs(), qname, type),
         getTypeVar(), getEnums());
   }

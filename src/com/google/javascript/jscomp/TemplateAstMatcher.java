@@ -25,6 +25,7 @@ import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.jstype.JSType;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -179,14 +180,22 @@ public final class TemplateAstMatcher {
     final Map<String, JSType> paramTypes = new HashMap<>();
 
     // drop the function name so it isn't include in the name maps
+    String fnName = fn.getFirstChild().getString();
     fn.getFirstChild().setString("");
 
     // Build a list of parameter names and types.
     Node templateParametersNode = fn.getFirstChild().getNext();
     JSDocInfo info = NodeUtil.getBestJSDocInfo(fn);
+    if (templateParametersNode.hasChildren()) {
+      Preconditions.checkNotNull(info, 
+          "Missing JSDoc declaration for template function %s", fnName);
+    }
     for (Node paramNode : templateParametersNode.children()) {
       String name = paramNode.getString();
       JSTypeExpression expression = info.getParameterType(name);
+      Preconditions.checkNotNull(expression, 
+          "Missing JSDoc for parameter %s of template function %s", 
+          name, fnName);
       JSType type = expression.evaluate(null, compiler.getTypeRegistry());
       Preconditions.checkNotNull(type);
       params.add(name);
@@ -241,9 +250,7 @@ public final class TemplateAstMatcher {
 
   private void reset() {
     isLooseMatch = false;
-    for (int i = 0; i < localVarMatches.size(); i++) {
-      localVarMatches.set(i, null);
-    }
+    Collections.fill(localVarMatches, null);
     for (int i = 0; i < paramNodeMatches.size(); i++) {
       this.paramNodeMatches.set(i, null);
     }

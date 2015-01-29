@@ -22,9 +22,12 @@
  * @externs
  */
 
+
 /**
- * @type {Object}
- * @const
+ * Suppresses the compiler warning when multiple externs files declare the
+ * ui namespace.
+ * @suppress {duplicate}
+ * @noalias
  */
 var ui = {};
 
@@ -41,7 +44,7 @@ ui.router = {};
  * @typedef {{
  *   params: Object,
  *   current: Object,
- *   transition: Object,
+ *   transition: ?angular.$q.Promise,
  *   get: function(...),
  *   go: function(...),
  *   href: function(...),
@@ -61,9 +64,41 @@ ui.router.$stateParams;
 
 
 /**
+ * This is the object that the ui-router passes to callback functions listening
+ * on ui router events such as {@code $stateChangeStart} or
+ * {@code $stateChangeError} as the {@code toState} and {@code fromState}.
+ * Example:
+ * $rootScope.$on('$stateChangeStart', function(
+ *     event, toState, toParams, fromState, fromParams){ ... });
+ *
+ * @typedef {{
+ *     'abstract': (boolean|undefined),
+ *     controller: (string|Function|undefined),
+ *     controllerAs: (string|undefined),
+ *     controllerProvider: (Function|undefined),
+ *     data: (Object|undefined),
+ *     name: string,
+ *     onEnter: (Object|undefined),
+ *     onExit: (Object|undefined),
+ *     params: (Object|undefined),
+ *     reloadOnSearch: (boolean|undefined),
+ *     resolve: (Object.<string, !Function>|undefined),
+ *     template: (string|Function|undefined),
+ *     templateUrl: (string|Function|undefined),
+ *     templateProvider: (Function|undefined),
+ *     url: (string|undefined),
+ *     views: (Object|undefined)
+ * }}
+ */
+ui.router.State;
+
+
+
+/**
  * @constructor
  */
 ui.router.$urlMatcherFactory = function() {};
+
 
 
 /**
@@ -74,7 +109,7 @@ ui.router.$urlRouterProvider = function($urlMatcherFactory) {};
 
 
 /**
- * @param {string} url
+ * @param {string|RegExp} url
  * @param {string|function(...)|Array.<!Object>} route
  */
 ui.router.$urlRouterProvider.prototype.when = function(url, route) {};
@@ -90,6 +125,7 @@ ui.router.$urlRouterProvider.prototype.otherwise = function(path) {};
  * @param {function(...)} rule
  */
 ui.router.$urlRouterProvider.prototype.rule = function(rule) {};
+
 
 
 /**

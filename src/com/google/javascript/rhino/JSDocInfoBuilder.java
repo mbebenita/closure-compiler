@@ -45,6 +45,8 @@ import com.google.javascript.rhino.jstype.StaticSourceFile;
 import java.util.List;
 import java.util.Set;
 
+import javax.annotation.Nullable;
+
 /**
  * A builder for {@link JSDocInfo} objects. This builder abstracts the
  * construction process of {@link JSDocInfo} objects whilst minimizing the
@@ -80,6 +82,13 @@ final public class JSDocInfoBuilder {
   public static JSDocInfoBuilder copyFrom(JSDocInfo info) {
     populateDefaults(info);
     return new JSDocInfoBuilder(info.clone(), info.isDocumentationIncluded(), true);
+  }
+
+  public static JSDocInfoBuilder maybeCopyFrom(@Nullable JSDocInfo info) {
+    if (info == null) {
+      return new JSDocInfoBuilder(true);
+    }
+    return copyFrom(info);
   }
 
   /**
@@ -611,6 +620,10 @@ final public class JSDocInfoBuilder {
     }
   }
 
+  // TODO(tbreisacher): Disallow nullable types here. If someone writes
+  // "@this {Foo}" in their JS we automatically treat it as though they'd written
+  // "@this {!Foo}". But, if the type node is created in the compiler
+  // (e.g. in the WizPass) we should explicitly add the '!'
   /**
    * Records a type for {@code @this} annotation.
    *
@@ -746,23 +759,6 @@ final public class JSDocInfoBuilder {
 
   /**
    * Records that the {@link JSDocInfo} being built should have its
-   * {@link JSDocInfo#isNoTypeCheck()} flag set to {@code true}.
-   *
-   * @return {@code true} if the no check flag was recorded and {@code false}
-   *     if it was already recorded
-   */
-  public boolean recordNoTypeCheck() {
-    if (!currentInfo.isNoTypeCheck()) {
-      currentInfo.setNoCheck(true);
-      populated = true;
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  /**
-   * Records that the {@link JSDocInfo} being built should have its
    * {@link JSDocInfo#isConstructor()} flag set to {@code true}.
    *
    * @return {@code true} if the constructor was recorded and {@code false}
@@ -852,32 +848,6 @@ final public class JSDocInfoBuilder {
 
   public boolean isDictRecorded() {
     return currentInfo.makesDicts();
-  }
-
-  /**
-   * Records that the {@link JSDocInfo} being built should have its
-   * {@link JSDocInfo#isJavaDispatch()} flag set to {@code true}.
-   *
-   * @return {@code true} if the javadispatch was recorded and {@code false}
-   *     if it was already defined or it was incompatible with the existing
-   *     flags
-   */
-  public boolean recordJavaDispatch() {
-    if (!currentInfo.isJavaDispatch()) {
-      currentInfo.setJavaDispatch(true);
-      populated = true;
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  /**
-   * Whether the {@link JSDocInfo} being built will have its
-   * {@link JSDocInfo#isJavaDispatch()} flag set to {@code true}.
-   */
-  public boolean isJavaDispatch() {
-    return currentInfo.isJavaDispatch();
   }
 
   /**
@@ -975,20 +945,6 @@ final public class JSDocInfoBuilder {
   public boolean recordExpose() {
     if (!currentInfo.isExpose()) {
       currentInfo.setExpose(true);
-      populated = true;
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  /**
-   * Records that the {@link JSDocInfo} being built should have its
-   * {@link JSDocInfo#isNoShadow()} flag set to {@code true}.
-   */
-  public boolean recordNoShadow() {
-    if (!currentInfo.isNoShadow()) {
-      currentInfo.setNoShadow(true);
       populated = true;
       return true;
     } else {

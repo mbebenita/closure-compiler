@@ -97,25 +97,25 @@ class JsDocTokenStream {
           return JsDocToken.COMMA;
 
         case '>':
-          return JsDocToken.GT;
+          return JsDocToken.RIGHT_ANGLE;
 
         case '(':
-          return JsDocToken.LP;
+          return JsDocToken.LEFT_PAREN;
 
         case ')':
-          return JsDocToken.RP;
+          return JsDocToken.RIGHT_PAREN;
 
         case '{':
-          return JsDocToken.LC;
+          return JsDocToken.LEFT_CURLY;
 
         case '}':
-          return JsDocToken.RC;
+          return JsDocToken.RIGHT_CURLY;
 
         case '[':
-          return JsDocToken.LB;
+          return JsDocToken.LEFT_SQUARE;
 
         case ']':
-          return JsDocToken.RB;
+          return JsDocToken.RIGHT_SQUARE;
 
         case '?':
           return JsDocToken.QMARK;
@@ -133,10 +133,13 @@ class JsDocTokenStream {
           matchChar('|');
           return JsDocToken.PIPE;
 
+        case '<':
+          return JsDocToken.LEFT_ANGLE;
+
         case '.':
           c = getChar();
           if (c == '<') {
-            return JsDocToken.LT;
+            return JsDocToken.LEFT_ANGLE;
           } else {
             if (c == '.') {
               c = getChar();
@@ -229,11 +232,9 @@ class JsDocTokenStream {
 
   final String getString() { return string; }
 
-  final boolean eof() { return hitEOF; }
-
   private String getStringFromBuffer() {
-    tokenEnd = cursor;
-    return new String(stringBuffer, 0, stringBufferTop);
+    String s = new String(stringBuffer, 0, stringBufferTop);
+    return s.intern();
   }
 
   private void addToString(int c) {
@@ -257,7 +258,6 @@ class JsDocTokenStream {
   private boolean matchChar(int test) {
     int c = getCharIgnoreLineEnd();
     if (c == test) {
-      tokenEnd = cursor;
       return true;
     } else {
       ungetCharIgnoreLineEnd(c);
@@ -279,6 +279,7 @@ class JsDocTokenStream {
       case '@':
       case '*':
       case ',':
+      case '<':
       case '>':
       case ':':
       case '(':
@@ -314,7 +315,7 @@ class JsDocTokenStream {
   }
 
   private static boolean isJSFormatChar(int c) {
-    return c > 127 && Character.getType((char) c) == Character.FORMAT;
+    return c > 127 && Character.getType(c) == Character.FORMAT;
   }
 
   /**
@@ -344,7 +345,6 @@ class JsDocTokenStream {
     for (;;) {
       int c;
       if (sourceCursor == sourceEnd) {
-        hitEOF = true;
         if (charno == -1) {
           charno = getOffset();
         }
@@ -400,7 +400,6 @@ class JsDocTokenStream {
     for (;;) {
       int c;
       if (sourceCursor == sourceEnd) {
-        hitEOF = true;
         if (charno == -1) {
           charno = getOffset();
         }
@@ -467,8 +466,6 @@ class JsDocTokenStream {
   private final int[] ungetBuffer = new int[3];
   private int ungetCursor;
 
-  private boolean hitEOF = false;
-
   private int lineStart = 0;
   private int lineEndChar = -1;
   int lineno;
@@ -487,8 +484,4 @@ class JsDocTokenStream {
   // source stream, tracking exactly how far scanning has progressed.
   // Its value is the index of the next character to be scanned.
   int cursor;
-
-  // Record start and end positions of last scanned token.
-  int tokenBeg;
-  int tokenEnd;
 }

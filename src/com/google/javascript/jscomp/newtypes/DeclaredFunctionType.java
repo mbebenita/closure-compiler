@@ -16,8 +16,9 @@
 
 package com.google.javascript.jscomp.newtypes;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableList;
+import com.google.javascript.jscomp.newtypes.NominalType.RawNominalType;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -44,7 +45,7 @@ public class DeclaredFunctionType {
   // Non-null iff this is a prototype method
   private final NominalType receiverType;
   // Non-null iff this function has an @template annotation
-  private ImmutableList<String> typeParameters;
+  private final ImmutableList<String> typeParameters;
 
   private DeclaredFunctionType(
       List<JSType> requiredFormals,
@@ -151,6 +152,21 @@ public class DeclaredFunctionType {
     return typeParameters;
   }
 
+  public boolean isTypeVariableInScope(String tvar) {
+    if (typeParameters != null && typeParameters.contains(tvar)) {
+      return true;
+    }
+    // We don't look at this.nominalType, b/c if this function is a generic
+    // constructor, then typeParameters contains the relevant type variables.
+    if (receiverType != null && receiverType.isUninstantiatedGenericType()) {
+      RawNominalType rawType = receiverType.getRawNominalType();
+      if (rawType.getTypeParameters().contains(tvar)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public DeclaredFunctionType withTypeInfoFromSuper(
       DeclaredFunctionType superType) {
     FunctionTypeBuilder builder = new FunctionTypeBuilder();
@@ -173,6 +189,7 @@ public class DeclaredFunctionType {
     builder.addRetType(returnType != null ? returnType : superType.returnType);
     builder.addNominalType(nominalType);
     builder.addReceiverType(receiverType);
+    builder.addTypeParameters(typeParameters);
     return builder.buildDeclaration();
   }
 
@@ -240,7 +257,7 @@ public class DeclaredFunctionType {
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this.getClass())
+    return MoreObjects.toStringHelper(this)
         .add("Required formals", requiredFormals)
         .add("Optional formals", optionalFormals)
         .add("Varargs formals", restFormals)

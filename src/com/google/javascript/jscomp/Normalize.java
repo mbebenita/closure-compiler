@@ -102,9 +102,6 @@ class Normalize implements CompilerPass {
     Node js = compiler.parseTestCode(code);
     NodeTraversal.traverse(compiler, js,
         new Normalize.NormalizeStatements(compiler, false));
-    NodeTraversal.traverse(
-        compiler, js,
-        new MakeDeclaredNamesUnique());
     return js;
   }
 
@@ -251,8 +248,7 @@ class Normalize implements CompilerPass {
 
         boolean shouldBeConstant =
             (info != null && info.isConstant()) ||
-            NodeUtil.isConstantByConvention(
-                compiler.getCodingConvention(), n, parent);
+            NodeUtil.isConstantByConvention(compiler.getCodingConvention(), n);
         boolean isMarkedConstant = n.getBooleanProp(Node.IS_CONSTANT_NAME);
         if (shouldBeConstant && !isMarkedConstant) {
           if (assertOnChange) {
@@ -307,7 +303,7 @@ class Normalize implements CompilerPass {
           boolean expectedConst = false;
           CodingConvention convention = compiler.getCodingConvention();
           if (NodeUtil.isConstantName(n)
-              || NodeUtil.isConstantByConvention(convention, n, parent)) {
+              || NodeUtil.isConstantByConvention(convention, n)) {
             expectedConst = true;
           } else {
             expectedConst = false;
@@ -438,7 +434,7 @@ class Normalize implements CompilerPass {
         boolean isMarkedConstant = n.getBooleanProp(Node.IS_CONSTANT_NAME);
         if (!isMarkedConstant &&
             NodeUtil.isConstantByConvention(
-                compiler.getCodingConvention(), n, parent)) {
+                compiler.getCodingConvention(), n)) {
           if (assertOnChange) {
             String name = n.getString();
             throw new IllegalStateException(
@@ -765,7 +761,7 @@ class Normalize implements CompilerPass {
         // expression.
 
         // Use the name of the var before it was made unique.
-        name = MakeDeclaredNamesUnique.ContextualRenameInverter.getOrginalName(
+        name = MakeDeclaredNamesUnique.ContextualRenameInverter.getOriginalName(
             name);
         compiler.report(JSError.make(n, CATCH_BLOCK_VAR_ERROR, name));
       } else if (v != null && parent.isFunction()) {

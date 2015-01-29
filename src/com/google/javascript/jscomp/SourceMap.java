@@ -38,6 +38,7 @@ import java.util.Map;
  * @see CodeGenerator
  * @see CodePrinter
  *
+ * @author johnlenz@google.com (John Lenz)
  */
 public class SourceMap {
 
@@ -89,6 +90,10 @@ public class SourceMap {
     public LocationMapping(String prefix, String replacement) {
       this.prefix = prefix;
       this.replacement = replacement;
+    }
+    @Override
+    public String toString() {
+      return "(" + prefix + "|" + replacement + ")";
     }
   }
 

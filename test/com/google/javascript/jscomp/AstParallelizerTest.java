@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.javascript.rhino.Node;
@@ -39,14 +41,14 @@ public class AstParallelizerTest extends TestCase {
     splitFunctions("x()", "x()");
   }
 
-  public void testSplitNamedFuntion() {
+  public void testSplitNamedFunction() {
     splitFunctions("function foo() { foo() } foo()",
                    "function " + HOLDER + "() {} foo()",
                    "function foo() { foo() }");
   }
 
 
-  public void testSplitNamedFuntionWithArgs() {
+  public void testSplitNamedFunctionWithArgs() {
     splitFunctions("function foo(x) { foo(1) } foo(1)",
                    "function " + HOLDER + "() {} foo(1)",
                    "function foo(x) { foo(1) }");
@@ -54,7 +56,7 @@ public class AstParallelizerTest extends TestCase {
 
   // TODO(johnlenz): This test is invalid it relies on allowing
   // nameless function statements, which does not parse.
-  public void disable_testSplitAnonFuntion() {
+  public void disable_testSplitAnonFunction() {
     splitFunctions("var foo = function(x) { foo(1) }; foo(1)",
                    "var foo = function " + HOLDER + "() {}; foo(1)",
                    "(function(x) { foo(1) })");
@@ -70,7 +72,7 @@ public class AstParallelizerTest extends TestCase {
 
   // TODO(johnlenz): This test is invalid it relies on allowing
   // nameless function statements, which does not parse.
-  public void disable_testSplitMupltiFuntions() {
+  public void disable_testSplitMupltiFunctions() {
     splitFunctions("var foo = function(x) { foo(1) }; foo();" +
                    "var bar = function(x,y) { bar(1,2) }; bar(1,2)",
                    // Output Root
@@ -108,7 +110,7 @@ public class AstParallelizerTest extends TestCase {
     AstParallelizer parallelizer =
       AstParallelizer.createNewFunctionLevelAstParallelizer(root, true);
     List<Node> forest = parallelizer.split();
-    assertEquals(output.length, forest.size());
+    assertThat(forest).hasSize(output.length);
     int i = 0;
     for (Node n : forest) {
       Node tree = compiler.parseTestCode(output[i++]);
@@ -136,7 +138,7 @@ public class AstParallelizerTest extends TestCase {
     AstParallelizer parallelizer =
       AstParallelizer.createNewFileLevelAstParallelizer(root);
     List<Node> forest = parallelizer.split();
-    assertEquals(input.length, forest.size());
+    assertThat(forest).hasSize(input.length);
     int i = 0;
     for (Node n : forest) {
       Node tree = compiler.parseTestCode(input[i++]);

@@ -18,13 +18,10 @@ package com.google.javascript.refactoring;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-import com.google.common.base.Function;
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.io.Files;
 import com.google.common.io.Resources;
@@ -70,7 +67,8 @@ public final class RefasterJsScanner extends Scanner {
   public void loadRefasterJsTemplate(String refasterjsTemplate) throws IOException  {
     Preconditions.checkState(
         templateJs == null, "Can't load RefasterJs template since a template is already loaded.");
-    this.templateJs = RefasterJsScanner.class.getResource(refasterjsTemplate) != null
+    this.templateJs =
+        Thread.currentThread().getContextClassLoader().getResource(refasterjsTemplate) != null
         ? Resources.toString(Resources.getResource(refasterjsTemplate), UTF_8)
         : Files.toString(new File(refasterjsTemplate), UTF_8);
   }
@@ -108,12 +106,7 @@ public final class RefasterJsScanner extends Scanner {
         matchedTemplate.afterTemplate.getLastChild(),
         matchedTemplate.matcher.getTemplateNodeToMatchMap());
     Node nodeToReplace = match.getNode();
-    // EXPR_RESULT nodes will contain the trailing semicolons, but the child node
-    // will not. Replace the EXPR_RESULT node to ensure that the semicolons are
-    // correct in the final output.
-    if (nodeToReplace.getParent().isExprResult()) {
-      nodeToReplace = nodeToReplace.getParent();
-    }
+    fix.setOriginalMatchedNode(nodeToReplace);
     fix.replace(nodeToReplace, newNode, match.getMetadata().getCompiler());
     // If the template is a multiline template, make sure to delete the same number of sibling nodes
     // as the template has.
@@ -135,15 +128,6 @@ public final class RefasterJsScanner extends Scanner {
       fix.removeGoogRequire(match, require);
     }
     return ImmutableList.of(fix.build());
-  }
-
-  public String getAst() {
-    return Joiner.on("\n\n").join(Lists.transform(
-        templates, new Function<RefasterJsTemplate, String>() {
-      @Override public String apply(RefasterJsTemplate template) {
-        return template.toAstString();
-      }
-    }));
   }
 
   /**
@@ -179,7 +163,8 @@ public final class RefasterJsScanner extends Scanner {
   void initialize(AbstractCompiler compiler) throws Exception {
     Preconditions.checkState(
         !Strings.isNullOrEmpty(templateJs),
-        "The template JS must be loaded before the scanner is used.");
+        "The template JS must be loaded before the scanner is used. "
+        + "Make sure that the template file is not empty.");
     Node scriptRoot = new JsAst(SourceFile.fromCode(
         "template", templateJs)).getAstRoot(compiler);
 
@@ -209,13 +194,15 @@ public final class RefasterJsScanner extends Scanner {
 
     Preconditions.checkState(
         !beforeTemplates.isEmpty(),
-        "Did not find any RefasterJs templates!");
+        "Did not find any RefasterJs templates! Make sure that there are 2 functions defined "
+        + "with the same name, one with a \"before_\" prefix and one with a \"after_\" prefix");
 
     ImmutableList.Builder<RefasterJsTemplate> builder = ImmutableList.builder();
     for (String templateName : beforeTemplates.keySet()) {
       Preconditions.checkState(
           afterTemplates.containsKey(templateName),
-          "Found before template without a corresponding after template: %s", templateName);
+          "Found before template without a corresponding after template. Make sure there is an "
+          + "after_%s function defined.", templateName);
       builder.add(new RefasterJsTemplate(compiler,
           beforeTemplates.get(templateName), afterTemplates.get(templateName)));
     }
@@ -263,11 +250,6 @@ public final class RefasterJsScanner extends Scanner {
         requires.add(m.group(1));
       }
       return requires.build();
-    }
-
-    public String toAstString() {
-      return "BEFORE:\n" + beforeTemplate.toStringTree()
-          + "\n\nAFTER:\n" + afterTemplate.toStringTree();
     }
   }
 }

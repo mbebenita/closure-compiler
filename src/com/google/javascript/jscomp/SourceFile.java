@@ -24,7 +24,6 @@ import com.google.common.io.Files;
 import com.google.javascript.rhino.jstype.StaticSourceFile;
 
 import java.io.File;
-import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -32,6 +31,7 @@ import java.io.Reader;
 import java.io.Serializable;
 import java.io.StringReader;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
@@ -324,21 +324,18 @@ public class SourceFile implements StaticSourceFile, Serializable {
     return builder().buildFromCode(fileName, code);
   }
 
-  public static SourceFile fromCode(String fileName,
-      String originalPath, String code) {
-    return builder().withOriginalPath(originalPath)
-        .buildFromCode(fileName, code);
-  }
-
+  /**
+   * @deprecated Use {@link #fromInputStream(String, InputStream, Charset)}
+   */
+  @Deprecated
   public static SourceFile fromInputStream(String fileName, InputStream s)
       throws IOException {
     return builder().buildFromInputStream(fileName, s);
   }
 
-  public static SourceFile fromInputStream(String fileName,
-      String originalPath, InputStream s) throws IOException {
-    return builder().withOriginalPath(originalPath)
-        .buildFromInputStream(fileName, s);
+  public static SourceFile fromInputStream(String fileName, InputStream s,
+      Charset charset) throws IOException {
+    return builder().withCharset(charset).buildFromInputStream(fileName, s);
   }
 
   public static SourceFile fromReader(String fileName, Reader r)
@@ -371,12 +368,6 @@ public class SourceFile implements StaticSourceFile, Serializable {
     /** Set the charset to use when reading from an input stream or file. */
     public Builder withCharset(Charset charset) {
       this.charset = charset;
-      return this;
-    }
-
-    /** Set the original path to use. */
-    public Builder withOriginalPath(String originalPath) {
-      this.originalPath = originalPath;
       return this;
     }
 
@@ -503,7 +494,7 @@ public class SourceFile implements StaticSourceFile, Serializable {
         return super.getCodeReader();
       } else {
         // If we haven't pulled the code into memory yet, don't.
-        return new FileReader(file);
+        return Files.newReader(file, StandardCharsets.UTF_8);
       }
     }
 

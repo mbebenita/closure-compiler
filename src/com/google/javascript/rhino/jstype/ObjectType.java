@@ -48,6 +48,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.ObjectTypeI;
 
 import java.util.Set;
 
@@ -79,7 +80,9 @@ import java.util.Set;
  * declared or inferred.
  *
  */
-public abstract class ObjectType extends JSType implements StaticScope<JSType> {
+public abstract class ObjectType
+    extends JSType
+    implements ObjectTypeI, StaticScope<JSType> {
   private boolean visited;
   private JSDocInfo docInfo = null;
   private boolean unknown = true;
@@ -217,7 +220,7 @@ public abstract class ObjectType extends JSType implements StaticScope<JSType> {
   public String getNormalizedReferenceName() {
     String name = getReferenceName();
     if (name != null) {
-      int pos = name.indexOf("(");
+      int pos = name.indexOf('(');
       if (pos != -1) {
         return name.substring(0, pos);
       }

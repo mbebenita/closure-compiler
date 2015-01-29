@@ -30,12 +30,6 @@
 var chrome = {};
 
 
-/**
- * Make the chrome namespace available via window, window.top, etc.
- * @const
- */
-window.chrome;
-
 
 /**
  * Returns an object representing current load times. Note that the properties
@@ -44,7 +38,7 @@ window.chrome;
  *
  * @see http://goto.google.com/chromeloadtimesextension
  *
- * @return {function(): !ChromeLoadTimes}
+ * @return {!ChromeLoadTimes}
  */
 chrome.loadTimes = function() {};
 

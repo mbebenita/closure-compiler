@@ -46,11 +46,23 @@ import java.util.regex.Pattern;
  */
 public final class SuggestedFix {
 
+  private final Node originalMatchedNode;
   // Multimap of filename to a modification to that file.
   private final SetMultimap<String, CodeReplacement> replacements;
 
-  private SuggestedFix(SetMultimap<String, CodeReplacement> replacements) {
+  private SuggestedFix(
+      Node originalMatchedNode,
+      SetMultimap<String, CodeReplacement> replacements) {
+    this.originalMatchedNode = originalMatchedNode;
     this.replacements = replacements;
+  }
+
+  /**
+   * Returns the JS Compiler Node for the original node that caused this SuggestedFix to
+   * be constructed.
+   */
+  public Node getOriginalMatchedNode() {
+    return originalMatchedNode;
   }
 
   /**
@@ -65,7 +77,7 @@ public final class SuggestedFix {
     StringBuilder sb = new StringBuilder();
     for (Map.Entry<String, Collection<CodeReplacement>> entry : replacements.asMap().entrySet()) {
       sb.append("Replacements for file: " + entry.getKey() + "\n");
-      sb.append(Joiner.on("\n").join(entry.getValue()));
+      Joiner.on("\n").appendTo(sb, entry.getValue());
     }
     return sb.toString();
   }
@@ -75,8 +87,18 @@ public final class SuggestedFix {
    * manipulate JS nodes.
    */
   public static final class Builder {
+    private Node originalMatchedNode = null;
     private final ImmutableSetMultimap.Builder<String, CodeReplacement> replacements =
         ImmutableSetMultimap.builder();
+
+    /**
+     * Sets the node on this SuggestedFix that caused this SuggestedFix to be built
+     * in the first place.
+     */
+    public Builder setOriginalMatchedNode(Node node) {
+      originalMatchedNode = node;
+      return this;
+    }
 
     /**
      * Inserts a new node before the provided node.
@@ -99,6 +121,8 @@ public final class SuggestedFix {
       if (jsDoc != null) {
         startPosition = jsDoc.getOriginalCommentPosition();
       }
+      Preconditions.checkNotNull(nodeToInsertBefore.getSourceFileName(),
+          "No source file name for node: %s", nodeToInsertBefore);
       replacements.put(
           nodeToInsertBefore.getSourceFileName(),
           new CodeReplacement(startPosition, 0, content));
@@ -116,6 +140,35 @@ public final class SuggestedFix {
       if (jsDoc != null) {
         length = n.getLength() + (startPosition - jsDoc.getOriginalCommentPosition());
         startPosition = jsDoc.getOriginalCommentPosition();
+      }
+      // Variable declarations require special handling since the NAME node doesn't contain enough
+      // information if the variable is declared in a multi-variable declaration. The NAME node
+      // in a VAR declaration doesn't include its child in its length if there is an inline
+      // assignment, and the code needs to know how to delete the commas. See SuggestedFixTest for
+      // more information.
+      // TODO(mknichel): Move this logic and the start position logic to a helper function
+      // so that it can be reused in other methods.
+      if (n.isName() && n.getParent().isVar()) {
+        if (n.getNext() != null) {
+          length = n.getNext().getSourceOffset() - startPosition;
+        } else if (n.hasChildren()) {
+          Node child = n.getFirstChild();
+          length = (child.getSourceOffset() + child.getLength()) - startPosition;
+        }
+        if (n.getParent().getLastChild() == n && n != n.getParent().getFirstChild()) {
+          Node previousSibling = n.getParent().getChildBefore(n);
+          if (previousSibling.hasChildren()) {
+            Node child = previousSibling.getFirstChild();
+            int startPositionDiff = startPosition - (child.getSourceOffset() + child.getLength());
+            startPosition -= startPositionDiff;
+            length += startPositionDiff;
+          } else {
+            int startPositionDiff = startPosition - (
+                previousSibling.getSourceOffset() + previousSibling.getLength());
+            startPosition -= startPositionDiff;
+            length += startPositionDiff;
+          }
+        }
       }
       replacements.put(n.getSourceFileName(), new CodeReplacement(startPosition, length, ""));
       return this;
@@ -158,10 +211,13 @@ public final class SuggestedFix {
         }
       } else if (n.isStringKey()) {
         nodeToRename = n;
+      } else if (n.isString()) {
+        Preconditions.checkState(n.getParent().isGetProp());
+        nodeToRename = n;
       } else {
         // TODO(mknichel): Implement the rest of this function.
         throw new UnsupportedOperationException(
-            "Rename is not implemented for node type: " + n.getType());
+            "Rename is not implemented for this node type: " + n);
       }
       replacements.put(
           nodeToRename.getSourceFileName(),
@@ -173,10 +229,28 @@ public final class SuggestedFix {
      * Replaces the provided node with new node in the source file.
      */
     public Builder replace(Node original, Node newNode, AbstractCompiler compiler) {
+      Node parent = original.getParent();
+      // EXPR_RESULT nodes will contain the trailing semicolons, but the child node
+      // will not. Replace the EXPR_RESULT node to ensure that the semicolons are
+      // correct in the final output.
+      if (original.getParent().isExprResult()) {
+        original = original.getParent();
+      }
+      // TODO(mknichel): Move this logic to CodePrinter.
+      String newCode = generateCode(compiler, newNode);
+      // The generated code may contain a trailing newline but that is never wanted.
+      if (newCode.endsWith("\n")) {
+        newCode = newCode.substring(0, newCode.length() - 1);
+      }
+      // Most replacements don't need the semicolon in the new generated code - however, some
+      // statements that are blocks or expressions will need the semicolon.
+      boolean needsSemicolon = parent.isExprResult() || parent.isBlock() || parent.isScript();
+      if (newCode.endsWith(";") && !needsSemicolon) {
+        newCode = newCode.substring(0, newCode.length() - 1);
+      }
       replacements.put(
           original.getSourceFileName(),
-          new CodeReplacement(
-              original.getSourceOffset(), original.getLength(), generateCode(compiler, newNode)));
+          new CodeReplacement(original.getSourceOffset(), original.getLength(), newCode));
       return this;
     }
 
@@ -416,7 +490,7 @@ public final class SuggestedFix {
     }
 
     public SuggestedFix build() {
-      return new SuggestedFix(replacements.build());
+      return new SuggestedFix(originalMatchedNode, replacements.build());
     }
   }
 }

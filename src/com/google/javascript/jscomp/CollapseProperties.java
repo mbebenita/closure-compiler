@@ -31,7 +31,7 @@ import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TokenStream;
-import com.google.javascript.rhino.jstype.JSType;
+import com.google.javascript.rhino.TypeI;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -93,33 +93,24 @@ class CollapseProperties implements CompilerPass {
   /** Maps names (e.g. "a.b.c") to nodes in the global namespace tree */
   private Map<String, Name> nameMap;
 
-  private final boolean collapsePropertiesOnExternTypes;
   private final boolean inlineAliases;
 
   /**
    * Creates an instance.
    *
    * @param compiler The JSCompiler, for reporting code changes
-   * @param collapsePropertiesOnExternTypes if true, will rename user-defined
-   *     static properties on externed typed. E.g. String.foo.
    * @param inlineAliases Whether we're allowed to inline local aliases of
    *     namespaces, etc.
    */
-  CollapseProperties(AbstractCompiler compiler,
-      boolean collapsePropertiesOnExternTypes, boolean inlineAliases) {
+  CollapseProperties(AbstractCompiler compiler, boolean inlineAliases) {
     this.compiler = compiler;
-    this.collapsePropertiesOnExternTypes = collapsePropertiesOnExternTypes;
     this.inlineAliases = inlineAliases;
   }
 
   @Override
   public void process(Node externs, Node root) {
     GlobalNamespace namespace;
-    if (collapsePropertiesOnExternTypes) {
-      namespace = new GlobalNamespace(compiler, externs, root);
-    } else {
-      namespace = new GlobalNamespace(compiler, root);
-    }
+    namespace = new GlobalNamespace(compiler, root);
 
     if (inlineAliases) {
       inlineAliases(namespace);
@@ -295,8 +286,7 @@ class CollapseProperties implements CompilerPass {
                 target = gparent;
               }
             } else {
-              throw new IllegalStateException(
-                  "unexpected: " + target.toString());
+              throw new IllegalStateException("unexpected: " + target);
             }
           }
           Preconditions.checkState(target.isGetProp() || target.isName());
@@ -510,7 +500,7 @@ class CollapseProperties implements CompilerPass {
   private void flattenSimpleStubDeclaration(Name name, String alias) {
     Ref ref = Iterables.getOnlyElement(name.getRefs());
     Node nameNode = NodeUtil.newName(
-        compiler.getCodingConvention(), alias, ref.node,
+        compiler, alias, ref.node,
         name.getFullName());
     Node varNode = IR.var(nameNode).copyInformationFrom(nameNode);
 
@@ -646,8 +636,7 @@ class CollapseProperties implements CompilerPass {
     //     string c
     // AFTER:
     //   name a$b$c
-    Node ref = NodeUtil.newName(
-        compiler.getCodingConvention(), alias, n, originalName);
+    Node ref = NodeUtil.newName(compiler, alias, n, originalName);
     NodeUtil.copyNameAnnotations(n.getLastChild(), ref);
     if (parent.isCall() && n == parent.getFirstChild()) {
       // The node was a call target, we are deliberately flatten these as
@@ -655,10 +644,11 @@ class CollapseProperties implements CompilerPass {
       parent.putBooleanProp(Node.FREE_CALL, true);
     }
 
-    JSType type = n.getJSType();
+    TypeI type = n.getTypeI();
     if (type != null) {
-      ref.setJSType(type);
+      ref.setTypeI(type);
     }
+
     parent.replaceChild(n, ref);
     compiler.reportCodeChange();
   }
@@ -720,8 +710,7 @@ class CollapseProperties implements CompilerPass {
     }
 
     // Create the new alias node.
-    Node nameNode = NodeUtil.newName(
-        compiler.getCodingConvention(), alias, gramps.getFirstChild(),
+    Node nameNode = NodeUtil.newName(compiler, alias, gramps.getFirstChild(),
         refName.getFullName());
     NodeUtil.copyNameAnnotations(ref.node.getLastChild(), nameNode);
 
@@ -860,8 +849,7 @@ class CollapseProperties implements CompilerPass {
 
       ref.node.getParent().removeChild(rvalue);
 
-      Node nameNode = NodeUtil.newName(
-          compiler.getCodingConvention(),
+      Node nameNode = NodeUtil.newName(compiler,
           alias, ref.node.getAncestor(2), n.getFullName());
 
       JSDocInfo info = ref.node.getParent().getJSDocInfo();

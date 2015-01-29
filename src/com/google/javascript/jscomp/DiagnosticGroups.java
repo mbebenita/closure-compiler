@@ -19,7 +19,11 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import com.google.javascript.jscomp.lint.CheckEnums;
+import com.google.javascript.jscomp.lint.CheckInterfaces;
 import com.google.javascript.jscomp.lint.CheckNullableReturn;
+import com.google.javascript.jscomp.lint.CheckPrototypeProperties;
+import com.google.javascript.jscomp.newtypes.JSTypeCreatorFromJSDoc;
 
 import java.util.Map;
 
@@ -79,6 +83,7 @@ public class DiagnosticGroups {
   static final String DIAGNOSTIC_GROUP_NAMES =
       "accessControls, ambiguousFunctionDecl, checkEventfulObjectDisposal, " +
       "checkRegExp, checkStructDictInheritance, checkTypes, checkVars, " +
+      "conformanceViolations, " +
       "const, constantProperty, deprecated, duplicateMessage, es3, " +
       "es5Strict, externsValidation, fileoverviewTags, globalThis, " +
       "inferredConstCheck, " +
@@ -121,7 +126,8 @@ public class DiagnosticGroups {
   public static final DiagnosticGroup NON_STANDARD_JSDOC =
       DiagnosticGroups.registerGroup("nonStandardJsDocs",
           RhinoErrorReporter.BAD_JSDOC_ANNOTATION,
-          RhinoErrorReporter.INVALID_PARAM);
+          RhinoErrorReporter.INVALID_PARAM,
+          RhinoErrorReporter.JSDOC_IN_BLOCK_COMMENT);
 
   public static final DiagnosticGroup INVALID_CASTS =
       DiagnosticGroups.registerGroup("invalidCasts",
@@ -209,6 +215,83 @@ public class DiagnosticGroups {
           GlobalTypeInfo.ALL_DIAGNOSTICS,
           NewTypeInference.ALL_DIAGNOSTICS);
 
+  static {
+      DiagnosticGroups.registerGroup("newCheckTypesWarningsOverload",
+          JSTypeCreatorFromJSDoc.INVALID_GENERICS_INSTANTIATION,
+          NewTypeInference.NULLABLE_DEREFERENCE);
+
+      // Warnings that are absent in closure library
+      DiagnosticGroups.registerGroup("newCheckTypesClosureClean",
+//           JSTypeCreatorFromJSDoc.BAD_JSDOC_ANNOTATION,
+          JSTypeCreatorFromJSDoc.CONFLICTING_EXTENDED_TYPE,
+          JSTypeCreatorFromJSDoc.CONFLICTING_IMPLEMENTED_TYPE,
+          JSTypeCreatorFromJSDoc.CONFLICTING_SHAPE_TYPE,
+          JSTypeCreatorFromJSDoc.DICT_IMPLEMENTS_INTERF,
+          JSTypeCreatorFromJSDoc.EXTENDS_NON_OBJECT,
+          JSTypeCreatorFromJSDoc.EXTENDS_NOT_ON_CTOR_OR_INTERF,
+          JSTypeCreatorFromJSDoc.IMPLEMENTS_WITHOUT_CONSTRUCTOR,
+          JSTypeCreatorFromJSDoc.INHERITANCE_CYCLE,
+          GlobalTypeInfo.ANONYMOUS_NOMINAL_TYPE,
+          GlobalTypeInfo.CANNOT_INIT_TYPEDEF,
+          GlobalTypeInfo.CANNOT_OVERRIDE_FINAL_METHOD,
+          GlobalTypeInfo.CONST_WITHOUT_INITIALIZER,
+//           GlobalTypeInfo.COULD_NOT_INFER_CONST_TYPE,
+          GlobalTypeInfo.CTOR_IN_DIFFERENT_SCOPE,
+          GlobalTypeInfo.DUPLICATE_JSDOC,
+          GlobalTypeInfo.DUPLICATE_PROP_IN_ENUM,
+          GlobalTypeInfo.EXPECTED_CONSTRUCTOR,
+          GlobalTypeInfo.EXPECTED_INTERFACE,
+          GlobalTypeInfo.INEXISTENT_PARAM,
+//           GlobalTypeInfo.INVALID_PROP_OVERRIDE,
+          GlobalTypeInfo.LENDS_ON_BAD_TYPE,
+          GlobalTypeInfo.MALFORMED_ENUM,
+//           GlobalTypeInfo.MISPLACED_CONST_ANNOTATION,
+//           GlobalTypeInfo.REDECLARED_PROPERTY,
+          GlobalTypeInfo.STRUCTDICT_WITHOUT_CTOR,
+          GlobalTypeInfo.UNDECLARED_NAMESPACE,
+//           GlobalTypeInfo.UNRECOGNIZED_TYPE_NAME,
+          TypeCheck.CONFLICTING_EXTENDED_TYPE,
+          TypeCheck.ENUM_NOT_CONSTANT,
+          TypeCheck.INCOMPATIBLE_EXTENDED_PROPERTY_TYPE,
+          TypeCheck.MULTIPLE_VAR_DEF,
+          TypeCheck.UNKNOWN_OVERRIDE,
+          TypeValidator.INTERFACE_METHOD_NOT_IMPLEMENTED,
+          NewTypeInference.ASSERT_FALSE,
+          NewTypeInference.CALL_FUNCTION_WITH_BOTTOM_FORMAL,
+          NewTypeInference.CANNOT_BIND_CTOR,
+//           NewTypeInference.CONST_REASSIGNED,
+          NewTypeInference.CROSS_SCOPE_GOTCHA,
+//           NewTypeInference.FAILED_TO_UNIFY,
+//           NewTypeInference.FORIN_EXPECTS_OBJECT,
+          NewTypeInference.FORIN_EXPECTS_STRING_KEY,
+//           NewTypeInference.GOOG_BIND_EXPECTS_FUNCTION,
+//           NewTypeInference.INVALID_ARGUMENT_TYPE,
+          NewTypeInference.INVALID_INFERRED_RETURN_TYPE,
+//           NewTypeInference.INVALID_OBJLIT_PROPERTY_TYPE,
+//           NewTypeInference.INVALID_OPERAND_TYPE,
+//           NewTypeInference.INVALID_THIS_TYPE_IN_BIND,
+//           NewTypeInference.MISTYPED_ASSIGN_RHS,
+//           NewTypeInference.NON_NUMERIC_ARRAY_INDEX,
+//           NewTypeInference.NOT_A_CONSTRUCTOR,
+//           NewTypeInference.NOT_UNIQUE_INSTANTIATION,
+//           NewTypeInference.POSSIBLY_INEXISTENT_PROPERTY,
+//           NewTypeInference.PROPERTY_ACCESS_ON_NONOBJECT,
+//           NewTypeInference.RETURN_NONDECLARED_TYPE,
+          NewTypeInference.UNKNOWN_ASSERTION_TYPE,
+          CheckGlobalThis.GLOBAL_THIS,
+//           CheckMissingReturn.MISSING_RETURN_STATEMENT,
+          TypeCheck.CONSTRUCTOR_NOT_CALLABLE,
+          TypeCheck.ILLEGAL_OBJLIT_KEY,
+//           TypeCheck.ILLEGAL_PROPERTY_CREATION,
+          TypeCheck.IN_USED_WITH_STRUCT,
+//           TypeCheck.INEXISTENT_PROPERTY,
+          TypeCheck.NOT_CALLABLE,
+//           TypeCheck.WRONG_ARGUMENT_COUNT,
+//           TypeValidator.ILLEGAL_PROPERTY_ACCESS,
+//           TypeValidator.INVALID_CAST,
+          TypeValidator.UNKNOWN_TYPEOF_VALUE);
+  }
+
   public static final DiagnosticGroup CHECK_EVENTFUL_OBJECT_DISPOSAL =
       DiagnosticGroups.registerGroup("checkEventfulObjectDisposal",
           CheckEventfulObjectDisposal.EVENTFUL_OBJECT_NOT_DISPOSED,
@@ -289,12 +372,6 @@ public class DiagnosticGroups {
           ES5_STRICT_UNCOMMON,
           ES5_STRICT_REFLECTION);
 
-  // TODO(johnlenz): Remove this in favor or "missingProvide" which matches
-  // the existing and more popular linter suppression
-  public static final DiagnosticGroup CHECK_PROVIDES =
-      DiagnosticGroups.registerGroup("checkProvides",
-          CheckProvides.MISSING_PROVIDE_WARNING);
-
   public static final DiagnosticGroup MISSING_PROVIDE =
       DiagnosticGroups.registerGroup("missingProvide",
           CheckProvides.MISSING_PROVIDE_WARNING);
@@ -313,7 +390,8 @@ public class DiagnosticGroups {
 
   public static final DiagnosticGroup MISPLACED_TYPE_ANNOTATION =
       DiagnosticGroups.registerGroup("misplacedTypeAnnotation",
-          RhinoErrorReporter.MISPLACED_TYPE_ANNOTATION);
+          RhinoErrorReporter.MISPLACED_TYPE_ANNOTATION,
+          RhinoErrorReporter.MISPLACED_FUNCTION_ANNOTATION);
 
   public static final DiagnosticGroup SUSPICIOUS_CODE =
       DiagnosticGroups.registerGroup("suspiciousCode",
@@ -322,16 +400,27 @@ public class DiagnosticGroups {
           CheckSuspiciousCode.SUSPICIOUS_IN_OPERATOR,
           CheckSuspiciousCode.SUSPICIOUS_INSTANCEOF_LEFT_OPERAND);
 
-  // NOTE(tbreisacher): The checks in this DiagnosticGroup are still
-  // experimental. Use them at your own risk!
+  // These checks are not intended to be enabled as errors. It is
+  // recommended that you think of them as "linter" warnings that
+  // provide optional suggestions.
   public static final DiagnosticGroup LINT_CHECKS =
       DiagnosticGroups.registerGroup("lintChecks",
+          CheckEnums.DUPLICATE_ENUM_VALUE,
+          // TODO(tbreisacher): Consider moving the CheckInterfaces warnings into the
+          // checkTypes DiagnosticGroup
+          CheckInterfaces.INTERFACE_FUNCTION_NOT_EMPTY,
+          CheckInterfaces.INTERFACE_SHOULD_NOT_TAKE_ARGS,
           CheckNullableReturn.NULLABLE_RETURN,
-          CheckNullableReturn.NULLABLE_RETURN_WITH_NAME);
+          CheckNullableReturn.NULLABLE_RETURN_WITH_NAME,
+          CheckPrototypeProperties.ILLEGAL_PROTOTYPE_MEMBER);
 
   public static final DiagnosticGroup USE_OF_GOOG_BASE =
       DiagnosticGroups.registerGroup("useOfGoogBase",
           ProcessClosurePrimitives.USE_OF_GOOG_BASE);
+
+  public static final DiagnosticGroup CLOSURE_DEP_METHOD_USAGE_CHECKS =
+      DiagnosticGroups.registerGroup("closureDepMethodUsageChecks",
+          ProcessClosurePrimitives.INVALID_CLOSURE_CALL_ERROR);
 
   // This group exists so that generated code can suppress these
   // warnings. Not for general use. These diagnostics will most likely
@@ -343,6 +432,17 @@ public class DiagnosticGroups {
           PeepholeFoldConstants.BITWISE_OPERAND_OUT_OF_RANGE,
           PeepholeFoldConstants.SHIFT_AMOUNT_OUT_OF_BOUNDS,
           PeepholeFoldConstants.FRACTIONAL_BITWISE_OPERAND);
+
+  public static final DiagnosticGroup CONFORMANCE_VIOLATIONS =
+      DiagnosticGroups.registerGroup("conformanceViolations",
+          CheckConformance.CONFORMANCE_VIOLATION,
+          CheckConformance.CONFORMANCE_POSSIBLE_VIOLATION);
+
+  static {
+    // For internal use only, so there is no constant for it.
+    DiagnosticGroups.registerGroup("invalidProvide",
+        ProcessClosurePrimitives.INVALID_PROVIDE_ERROR);
+  }
 
   /**
    * Adds warning levels by name.

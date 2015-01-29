@@ -228,11 +228,10 @@ class CodeGenerator {
         break;
 
       case Token.NAME:
-        if (first == null || first.isEmpty()) {
-          addIdentifier(n.getString());
-        } else {
+        addIdentifier(n.getString());
+        maybeAddTypeDecl(n);
+        if (first != null && !first.isEmpty()) {
           Preconditions.checkState(childCount == 1);
-          addIdentifier(n.getString());
           cc.addOp("=", true);
           if (first.isComma()) {
             addExpr(first, NodeUtil.precedence(Token.ASSIGN), Context.OTHER);
@@ -262,7 +261,8 @@ class CodeGenerator {
 
       case Token.DEFAULT_VALUE:
         add(first);
-        add("=");
+        maybeAddTypeDecl(n);
+        cc.addOp("=", true);
         add(first.getNext());
         break;
 
@@ -341,9 +341,12 @@ class CodeGenerator {
         Preconditions.checkState(childCount == 3);
 
         boolean isArrow = n.isArrowFunction();
-        // TODO(johnlenz): properly parenthesize arrow functions
+        // Arrow functions are complete expressions, so don't need parentheses
+        // if they are in an expression result.
+        boolean notSingleExpr = n.getParent() == null
+            || !n.getParent().isExprResult();
         boolean funcNeedsParens = (context == Context.START_OF_EXPR)
-            || isArrow;
+            && (!isArrow || notSingleExpr);
         if (funcNeedsParens) {
           add("(");
         }
@@ -357,9 +360,11 @@ class CodeGenerator {
 
         add(first);
 
-        add(first.getNext());
+        add(first.getNext());  // param list
+
+        maybeAddTypeDecl(n);
         if (isArrow) {
-          add("=>");
+          cc.addOp("=>", true);
         }
         add(last, Context.PRESERVE_BLOCK);
         cc.endFunction(context == Context.STATEMENT);
@@ -407,17 +412,20 @@ class CodeGenerator {
 
       case Token.IMPORT:
         add("import");
-        Node specList = first.getNext();
+
+        Node second = first.getNext();
         if (!first.isEmpty()) {
           add(first);
-          if (specList.hasChildren()) {
+          if (!second.isEmpty()) {
             cc.listSeparator();
           }
         }
-        if (specList.hasChildren()) {
-          add(specList);
+        if (!second.isEmpty()) {
+          add(second);
         }
-        add("from");
+        if (!first.isEmpty() || !second.isEmpty()) {
+          add("from");
+        }
         add(last);
         cc.endStatement();
         break;
@@ -441,6 +449,12 @@ class CodeGenerator {
           add("as");
           add(last);
         }
+        break;
+
+      case Token.IMPORT_STAR:
+        add("*");
+        add("as");
+        add(n.getString());
         break;
 
       // CLASS -> NAME,EXPR|EMPTY,BLOCK
@@ -1013,12 +1027,50 @@ class CodeGenerator {
         add("`");
         break;
 
+      // Type Declaration ASTs.
+      case Token.STRING_TYPE:
+        add("string");
+        break;
+      case Token.BOOLEAN_TYPE:
+        add("boolean");
+        break;
+      case Token.NUMBER_TYPE:
+        add("number");
+        break;
+      case Token.ANY_TYPE:
+        add("any");
+        break;
+      case Token.NULL_TYPE:
+        add("string");
+        break;
+      case Token.VOID_TYPE:
+        add("void");
+        break;
+      case Token.UNDEFINED_TYPE:
+        add("undefined");
+        break;
+      case Token.NAMED_TYPE:
+        // Children are a chain of getprop nodes.
+        add(first);
+        break;
+      case Token.ARRAY_TYPE:
+        add(first);
+        add("[]");
+        break;
+
       default:
         throw new RuntimeException(
             "Unknown type " + Token.name(type) + "\n" + n.toStringTree());
     }
 
     cc.endSourceMapping(n);
+  }
+
+  private void maybeAddTypeDecl(Node n) {
+    if (n.getDeclaredTypeExpression() != null) {
+      add(": ");
+      add(n.getDeclaredTypeExpression());
+    }
   }
 
   /**
@@ -1197,10 +1249,6 @@ class CodeGenerator {
     addList(firstInList, true, Context.OTHER);
   }
 
-  void addList(Node firstInList, boolean isArrayOrFunctionArgument) {
-    addList(firstInList, isArrayOrFunctionArgument, Context.OTHER);
-  }
-
   void addList(Node firstInList, boolean isArrayOrFunctionArgument,
                Context lhsContext) {
     for (Node n = firstInList; n != null; n = n.getNext()) {
@@ -1371,13 +1419,6 @@ class CodeGenerator {
   /** Escapes regular expression */
   String regexpEscape(String s, CharsetEncoder outputCharsetEncoder) {
     return strEscape(s, '/', "\"", "'", "\\", outputCharsetEncoder, false, true);
-  }
-
-  /**
-   * Escapes the given string to a double quoted (") JavaScript/JSON string
-   */
-  String escapeToDoubleQuotedJsString(String s) {
-    return strEscape(s, '"',  "\\\"", "\'", "\\\\", null, false, false);
   }
 
   /* If the user doesn't want to specify an output charset encoder, assume

@@ -280,7 +280,7 @@ class MakeDeclaredNamesUnique
       NodeTraversal.traverse(compiler, js, this);
     }
 
-    public static String getOrginalName(String name) {
+    public static String getOriginalName(String name) {
       int index = indexOfSeparator(name);
       return (index == -1) ? name : name.substring(0, index);
     }
@@ -340,7 +340,7 @@ class MakeDeclaredNamesUnique
      */
     void handleScopeVar(Var v) {
       String name  = v.getName();
-      if (containsSeparator(name) && !getOrginalName(name).isEmpty()) {
+      if (containsSeparator(name) && !getOriginalName(name).isEmpty()) {
         String newName = findReplacementName(name);
         referencedNames.remove(name);
         // Adding a reference to the new name to prevent either the parent
@@ -361,12 +361,11 @@ class MakeDeclaredNamesUnique
      * Find a name usable in the local scope.
      */
     private String findReplacementName(String name) {
-      String original = getOrginalName(name);
+      String original = getOriginalName(name);
       String newName = original;
       int i = 0;
       while (!isValidName(newName)) {
-        newName = original +
-            ContextualRenamer.UNIQUE_ID_SEPARATOR + String.valueOf(i++);
+        newName = original + ContextualRenamer.UNIQUE_ID_SEPARATOR + i++;
       }
       return newName;
     }
@@ -375,12 +374,8 @@ class MakeDeclaredNamesUnique
      * @return Whether the name is valid to use in the local scope.
      */
     private boolean isValidName(String name) {
-      if (TokenStream.isJSIdentifier(name) &&
-          !referencedNames.contains(name) &&
-          !name.equals(ARGUMENTS)) {
-        return true;
-      }
-      return false;
+      return TokenStream.isJSIdentifier(name) && !referencedNames.contains(name)
+          && !name.equals(ARGUMENTS);
     }
 
     @Override

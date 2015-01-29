@@ -56,6 +56,7 @@ import java.util.Set;
  * <p>Checks the types of JS expressions against any declared type
  * information.</p>
  *
+ * @author nicksantos@google.com (Nick Santos)
  */
 public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
 
@@ -147,9 +148,9 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           "interface members can only be empty property declarations,"
           + " empty functions{0}");
 
-  static final DiagnosticType INTERFACE_FUNCTION_NOT_EMPTY =
+  static final DiagnosticType INTERFACE_METHOD_NOT_EMPTY =
       DiagnosticType.warning(
-          "JSC_INTERFACE_FUNCTION_NOT_EMPTY",
+          "JSC_INTERFACE_METHOD_NOT_EMPTY",
           "interface member functions must have an empty body");
 
   static final DiagnosticType CONFLICTING_SHAPE_TYPE =
@@ -265,7 +266,7 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       ENUM_DUP,
       ENUM_NOT_CONSTANT,
       INVALID_INTERFACE_MEMBER_DECLARATION,
-      INTERFACE_FUNCTION_NOT_EMPTY,
+      INTERFACE_METHOD_NOT_EMPTY,
       CONFLICTING_SHAPE_TYPE,
       CONFLICTING_EXTENDED_TYPE,
       CONFLICTING_IMPLEMENTED_TYPE,
@@ -314,10 +315,6 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
   private int nullCount = 0;
   private int unknownCount = 0;
   private boolean inExterns;
-
-  // A state boolean to see we are currently in @notypecheck section of the
-  // code.
-  private int noTypeCheckSection = 0;
 
   private Method editDistance;
 
@@ -436,38 +433,14 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     }
   }
 
-
-  private void checkNoTypeCheckSection(Node n, boolean enterSection) {
-    switch (n.getType()) {
-      case Token.SCRIPT:
-      case Token.BLOCK:
-      case Token.VAR:
-      case Token.FUNCTION:
-      case Token.ASSIGN:
-        JSDocInfo info = n.getJSDocInfo();
-        if (info != null && info.isNoTypeCheck()) {
-          if (enterSection) {
-            noTypeCheckSection++;
-          } else {
-            noTypeCheckSection--;
-          }
-        }
-        validator.setShouldReport(noTypeCheckSection == 0);
-        break;
-    }
-  }
-
   private void report(NodeTraversal t, Node n, DiagnosticType diagnosticType,
       String... arguments) {
-    if (noTypeCheckSection == 0) {
-      t.report(n, diagnosticType, arguments);
-    }
+    t.report(n, diagnosticType, arguments);
   }
 
   @Override
   public boolean shouldTraverse(
       NodeTraversal t, Node n, Node parent) {
-    checkNoTypeCheckSection(n, true);
     switch (n.getType()) {
       case Token.FUNCTION:
         // normal type checking
@@ -881,8 +854,6 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     if (typeable) {
       doPercentTypedAccounting(t, n);
     }
-
-    checkNoTypeCheckSection(n, false);
   }
 
   private void checkTypeofString(NodeTraversal t, Node n, String s) {
@@ -1071,6 +1042,30 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     }
   }
 
+  private void checkPropertyInheritanceOnPrototypeLitKey(
+      NodeTraversal t, Node key, String propertyName, ObjectType type) {
+    // Inheritance checks for prototype objlit properties.
+    //
+    // TODO(nicksantos): This isn't the right place to do this check. We
+    // really want to do this when we're looking at the constructor.
+    // We'd find all its properties and make sure they followed inheritance
+    // rules, like we currently do for @implements to make sure
+    // all the methods are implemented.
+    //
+    // As-is, this misses many other ways to override a property.
+    //
+    // object.prototype = { key: function() {} };
+    FunctionType ctorType = type.getOwnerFunction();
+    if (ctorType == null || (!ctorType.isConstructor() && !ctorType.isInterface())) {
+      return;
+    }
+
+    JSType propertyType = type.getPropertyType(propertyName);
+    checkDeclaredPropertyInheritance(
+        t, key, ctorType, propertyName,
+        key.getJSDocInfo(), propertyType);
+  }
+
   /**
    * Visits an object literal field definition <code>key : value</code>.
    *
@@ -1102,8 +1097,7 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     // For getter and setter property definitions the
     // r-value type != the property type.
     Node rvalue = key.getFirstChild();
-    JSType rightType = NodeUtil.getObjectLitKeyTypeFromValueType(
-        key, getJSType(rvalue));
+    JSType rightType = getObjectLitKeyTypeFromValueType(key, getJSType(rvalue));
     if (rightType == null) {
       rightType = getNativeType(UNKNOWN_TYPE);
     }
@@ -1140,6 +1134,7 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         objlitType.restrictByNotNullOrUndefined());
     if (type != null) {
       String property = NodeUtil.getObjectLitKeyName(key);
+      checkPropertyInheritanceOnPrototypeLitKey(t, key, property, type);
       if (type.hasProperty(property) &&
           !type.isPropertyTypeInferred(property) &&
           !propertyIsImplicitCast(type, property)) {
@@ -1219,7 +1214,8 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
             interfaceHasProperty;
         if (reportMissingOverride.isOn()
             && !declaredOverride
-            && interfaceHasProperty) {
+            && interfaceHasProperty
+            && !"__proto__".equals(propertyName)) {
           // @override not present, but the property does override an interface
           // property
           compiler.report(t.makeError(n, reportMissingOverride,
@@ -1245,7 +1241,8 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     if (reportMissingOverride.isOn()
         && !declaredOverride
         && superClassHasDeclaredProperty
-        && declaredLocally) {
+        && declaredLocally
+        && !"__proto__".equals(propertyName)) {
       // @override not present, but the property does override a superclass
       // property
       compiler.report(t.makeError(n, reportMissingOverride,
@@ -1327,6 +1324,38 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
   }
 
   /**
+   * @param key A OBJECTLIT key node.
+   * @return The type expected when using the key.
+   */
+  static JSType getObjectLitKeyTypeFromValueType(Node key, JSType valueType) {
+    if (valueType != null) {
+      switch (key.getType()) {
+        case Token.GETTER_DEF:
+          // GET must always return a function type.
+          if (valueType.isFunctionType()) {
+            FunctionType fntype = valueType.toMaybeFunctionType();
+            valueType = fntype.getReturnType();
+          } else {
+            return null;
+          }
+          break;
+        case Token.SETTER_DEF:
+          if (valueType.isFunctionType()) {
+            // SET must always return a function type.
+            FunctionType fntype = valueType.toMaybeFunctionType();
+            Node param = fntype.getParametersNode().getFirstChild();
+            // SET function must always have one parameter.
+            valueType = param.getJSType();
+          } else {
+            return null;
+          }
+          break;
+      }
+    }
+    return valueType;
+  }
+
+  /**
    * Visits an ASSIGN node for cases such as
    * <pre>
    * interface.property2.property = ...;
@@ -1358,7 +1387,7 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     if (assign.getLastChild().isFunction()
         && !NodeUtil.isEmptyBlock(assign.getLastChild().getLastChild())) {
       compiler.report(
-          t.makeError(object, INTERFACE_FUNCTION_NOT_EMPTY,
+          t.makeError(object, INTERFACE_METHOD_NOT_EMPTY,
               abstractMethodName));
     }
   }
@@ -1475,7 +1504,7 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       NodeTraversal t, Node n) {
     if (!objectType.isEmptyType() &&
         reportMissingProperties &&
-        (!isPropertyTest(n) || objectType.isStruct())) {
+        (!NodeUtil.isPropertyTest(compiler, n) || objectType.isStruct())) {
       if (!typeRegistry.canPropertyBeDefined(objectType, propName)) {
         boolean lowConfidence = objectType.isUnknownType()
             || objectType.isEquivalentTo(getNativeType(OBJECT_TYPE));
@@ -1484,14 +1513,15 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           pair = getClosestPropertySuggestion(objectType, propName);
         }
         if (pair != null && pair.distance * 4 < propName.length()) {
-          report(t, n, INEXISTENT_PROPERTY_WITH_SUGGESTION, propName,
+          report(t, n.getLastChild(), INEXISTENT_PROPERTY_WITH_SUGGESTION,
+              propName,
               validator.getReadableJSTypeName(n.getFirstChild(), true),
               pair.suggestion);
         } else {
           DiagnosticType reportType = lowConfidence ?
               POSSIBLE_INEXISTENT_PROPERTY :
               INEXISTENT_PROPERTY;
-          report(t, n, reportType, propName,
+          report(t, n.getLastChild(), reportType, propName,
               validator.getReadableJSTypeName(n.getFirstChild(), true));
         }
       }
@@ -1551,43 +1581,6 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     }
 
     return null;
-  }
-
-  /**
-   * Determines whether this node is testing for the existence of a property.
-   * If true, we will not emit warnings about a missing property.
-   *
-   * @param getProp The GETPROP being tested.
-   */
-  private boolean isPropertyTest(Node getProp) {
-    Node parent = getProp.getParent();
-    switch (parent.getType()) {
-      case Token.CALL:
-        return parent.getFirstChild() != getProp &&
-            compiler.getCodingConvention().isPropertyTestFunction(parent);
-
-      case Token.IF:
-      case Token.WHILE:
-      case Token.DO:
-      case Token.FOR:
-        return NodeUtil.getConditionExpression(parent) == getProp;
-
-      case Token.INSTANCEOF:
-      case Token.TYPEOF:
-        return true;
-
-      case Token.AND:
-      case Token.HOOK:
-        return parent.getFirstChild() == getProp;
-
-      case Token.NOT:
-        return parent.getParent().isOr() &&
-            parent.getParent().getFirstChild() == parent;
-
-      case Token.CAST:
-        return isPropertyTest(parent);
-    }
-    return false;
   }
 
   /**
@@ -1688,16 +1681,21 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     }
     for (String name : currentPropertyNames) {
       ObjectType oType = properties.get(name);
-      if (oType != null) {
-        if (!interfaceType.getPropertyType(name).isEquivalentTo(
-            oType.getPropertyType(name))) {
-          compiler.report(
-              t.makeError(n, INCOMPATIBLE_EXTENDED_PROPERTY_TYPE,
-                  functionName, name, oType.toString(),
-                  interfaceType.toString()));
-        }
-      }
       currentProperties.put(name, interfaceType);
+      if (oType != null) {
+        JSType thisPropType = interfaceType.getPropertyType(name);
+        JSType oPropType = oType.getPropertyType(name);
+        if (thisPropType.isEquivalentTo(oPropType)
+            || thisPropType.isFunctionType() && oPropType.isFunctionType()
+               && thisPropType.toMaybeFunctionType().hasEqualCallType(
+                  oPropType.toMaybeFunctionType())) {
+          continue;
+        }
+        compiler.report(
+            t.makeError(n, INCOMPATIBLE_EXTENDED_PROPERTY_TYPE,
+                functionName, name, oType.toString(),
+                interfaceType.toString()));
+      }
     }
     for (ObjectType iType : interfaceType.getCtorExtendedInterfaces()) {
       checkInterfaceConflictProperties(t, n, functionName, properties,

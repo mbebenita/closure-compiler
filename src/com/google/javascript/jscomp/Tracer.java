@@ -287,19 +287,6 @@ final class Tracer {
   }
 
   /**
-   * Construct a tracer whose type is based on the short name of the object
-   * @param object   Object to use as type name
-   * @param comment  A comment
-   * @return  new Tracer.
-   */
-  static Tracer shortName(Object object, String comment) {
-    if (object == null) {
-      return new Tracer(comment);
-    }
-    return new Tracer(object.getClass().getSimpleName(), comment);
-  }
-
-  /**
    * Converts 'v' to a string and pads it with up to 16 spaces for
    * improved alignment.
    * @param v The value to convert.
@@ -693,7 +680,7 @@ final class Tracer {
         }
       }
       sb.append(indent);
-      sb.append(tracer.toString());
+      sb.append(tracer);
       return sb.toString();
     }
   }
@@ -977,6 +964,7 @@ final class Tracer {
    * The class com.google.monitoring.tracing.TracingStatistics
    * contains several useful tracing statistics
    *
+   * @author fy@google.com (Frank Yellin)
    */
   static interface TracingStatistic {
     /**
@@ -1028,6 +1016,7 @@ final class Tracer {
    * This class encapsulates a map for keeping track of tracing statistics.
    * It allows the caller to atomically increment named fields.
    *
+   * @author fy@google.com (Frank Yellin)
    */
   static final class AtomicTracerStatMap {
     private final ConcurrentMap<String, Long> map =

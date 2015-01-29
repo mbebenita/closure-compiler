@@ -20,6 +20,7 @@
  *  http://www.w3.org/TR/REC-DOM-Level-1/ecma-script-language-binding.html
  *
  * @externs
+ * @author stevey@google.com (Steve Yegge)
  */
 
 /**
@@ -384,14 +385,19 @@ Document.prototype.createCDATASection = function(data) {};
 Document.prototype.createDocumentFragment = function() {};
 
 /**
- * Create a DOM element. Surprisingly, this has side-effects on IE
- * (creating and element with a custom tag boots up a sub-system that
- * handles custom tags).
+ * Create a DOM element.
+ *
+ * Web components introduced the second parameter as a way of extending existing
+ * tags (e.g. document.createElement('button', 'fancy-button')).
+ *
  * @param {string} tagName
+ * @param {string=} opt_typeExtension
  * @return {!Element}
+ * @nosideeffects
  * @see http://www.w3.org/TR/1998/REC-DOM-Level-1-19981001/level-one-core.html#method-createElement
+ * @see http://w3c.github.io/webcomponents/spec/custom/#extensions-to-document-interface-to-instantiate
  */
-Document.prototype.createElement = function(tagName) {};
+Document.prototype.createElement = function(tagName, opt_typeExtension) {};
 
 /**
  * @param {string} name
@@ -813,6 +819,7 @@ ProcessingInstruction.prototype.target;
  * @implements {EventTarget}
  */
 function Window() {}
+Window.prototype.Window;
 
 /**
  * @param {boolean=} opt_useCapture

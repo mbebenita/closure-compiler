@@ -105,11 +105,6 @@ public class JSModule implements DependencyInfo, Serializable {
     add(new CompilerInput(file));
   }
 
-  /** Adds a source file input to this module. */
-  public void addFirst(SourceFile file) {
-    addFirst(new CompilerInput(file));
-  }
-
   /** Adds a source code input to this module. */
   public void add(CompilerInput input) {
     inputs.add(input);
@@ -124,12 +119,6 @@ public class JSModule implements DependencyInfo, Serializable {
   void addAndOverrideModule(CompilerInput input) {
     inputs.add(input);
     input.overrideModule(this);
-  }
-
-  /** Adds a source code input to this module. */
-  public void addFirst(CompilerInput input) {
-    inputs.add(0, input);
-    input.setModule(this);
   }
 
   /** Adds a source code input to this module directly after other. */

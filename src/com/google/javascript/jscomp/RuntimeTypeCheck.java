@@ -82,6 +82,7 @@ class RuntimeTypeCheck implements CompilerPass {
     NodeTraversal.traverse(compiler, root, new AddMarkers(compiler));
     NodeTraversal.traverse(compiler, root, new AddChecks());
     addBoilerplateCode();
+    new Normalize(compiler, false).process(externs, root);
   }
 
   /**
@@ -147,8 +148,8 @@ class RuntimeTypeCheck implements CompilerPass {
         return nodeToInsertAfter;
       }
 
-      Node classNode = NodeUtil.newQualifiedNameNode(
-          compiler.getCodingConvention(), className);
+      Node classNode = NodeUtil.newQName(
+          compiler, className);
 
       Node marker = IR.string(
               interfaceType == null ?
@@ -303,7 +304,7 @@ class RuntimeTypeCheck implements CompilerPass {
       Collection<JSType> alternates;
       if (type.isUnionType()) {
         alternates = Sets.newTreeSet(ALPHA);
-        Iterables.addAll(alternates, type.toMaybeUnionType().getAlternates());
+        alternates.addAll(type.toMaybeUnionType().getAlternates());
       } else {
         alternates = ImmutableList.of(type);
       }
@@ -371,11 +372,11 @@ class RuntimeTypeCheck implements CompilerPass {
       // Inject the custom log function.
       Node logOverride = IR.exprResult(
           IR.assign(
-              NodeUtil.newQualifiedNameNode(
-                  compiler.getCodingConvention(),
+              NodeUtil.newQName(
+                  compiler,
                   "$jscomp.typecheck.log"),
-              NodeUtil.newQualifiedNameNode(
-                  compiler.getCodingConvention(),
+              NodeUtil.newQName(
+                  compiler,
                   logFunction)));
       newNode.getParent().addChildAfter(logOverride, newNode);
       compiler.reportCodeChange();
@@ -383,7 +384,7 @@ class RuntimeTypeCheck implements CompilerPass {
   }
 
   private Node jsCode(String prop) {
-    return NodeUtil.newQualifiedNameNode(
-        compiler.getCodingConvention(), "$jscomp.typecheck." + prop);
+    return NodeUtil.newQName(
+        compiler, "$jscomp.typecheck." + prop);
   }
 }

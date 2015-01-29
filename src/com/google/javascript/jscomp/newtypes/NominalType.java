@@ -20,6 +20,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 
 import java.util.HashMap;
@@ -28,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  *
@@ -36,11 +38,12 @@ import java.util.Set;
  */
 public class NominalType {
   // In the case of a generic type (rawType.typeParameters non-empty) either:
-  // a) typeMap is empty, this is an uninstantiated generic type (Foo.<T>), or
+  // a) typeMap is empty, this is an uninstantiated generic type (Foo<T>), or
   // b) typeMap's keys exactly correspond to the type parameters of rawType;
-  //    this represents a completely instantiated generic type (Foo.<number>).
+  //    this represents a completely instantiated generic type (Foo<number>).
   private final ImmutableMap<String, JSType> typeMap;
   private final RawNominalType rawType;
+  private static final Pattern NUMERIC_PATTERN = Pattern.compile("\\d+");
 
   private NominalType(
       ImmutableMap<String, JSType> typeMap, RawNominalType rawType) {
@@ -51,14 +54,32 @@ public class NominalType {
     this.rawType = rawType;
   }
 
-  // This should only be called during GlobalTypeInfo
+  // This should only be called during GlobalTypeInfo.
   public RawNominalType getRawNominalType() {
     Preconditions.checkState(typeMap.isEmpty());
     return rawType;
   }
 
+  public JSType getInstanceAsJSType() {
+    return (rawType.isGeneric() && !typeMap.isEmpty())
+        ? JSType.fromObjectType(ObjectType.fromNominalType(this))
+        : rawType.getInstanceAsJSType();
+  }
+
   ObjectKind getObjectKind() {
     return rawType.objectKind;
+  }
+
+  boolean isClassy() {
+    return !isFunction() && !isObject();
+  }
+
+  boolean isFunction() {
+    return "Function".equals(rawType.name);
+  }
+
+  private boolean isObject() {
+    return "Object".equals(rawType.name);
   }
 
   public boolean isStruct() {
@@ -67,6 +88,10 @@ public class NominalType {
 
   public boolean isDict() {
     return rawType.isDict();
+  }
+
+  public boolean isUninstantiatedGenericType() {
+    return rawType.isGeneric() && typeMap.isEmpty();
   }
 
   NominalType instantiateGenerics(List<JSType> types) {
@@ -86,19 +111,31 @@ public class NominalType {
       return this.rawType.wrappedAsNominal;
     }
     ImmutableMap.Builder<String, JSType> builder = ImmutableMap.builder();
+    ImmutableMap<String, JSType> resultMap;
     if (!typeMap.isEmpty()) {
       for (String oldKey : typeMap.keySet()) {
         builder.put(oldKey, typeMap.get(oldKey).substituteGenerics(newTypeMap));
       }
+      resultMap = builder.build();
     } else {
-      for (Map.Entry<String, JSType> newTypeEntry : newTypeMap.entrySet()) {
-        String newKey = newTypeEntry.getKey();
-        if (rawType.typeParameters.contains(newKey)) {
-          builder.put(newKey, newTypeEntry.getValue());
+      for (String newKey : rawType.typeParameters) {
+        if (newTypeMap.containsKey(newKey)) {
+          builder.put(newKey, newTypeMap.get(newKey));
         }
       }
+      resultMap = builder.build();
+      if (resultMap.isEmpty()) {
+        return this;
+      }
+      // This works around a bug in FunctionType, because we can't know where
+      // FunctionType#receiverType is coming from.
+      // If the condition is true, receiverType comes from a method declaration,
+      // and we should not create a new type here.
+      if (resultMap.size() < rawType.typeParameters.size()) {
+        return this;
+      }
     }
-    return new NominalType(builder.build(), this.rawType);
+    return new NominalType(resultMap, this.rawType);
   }
 
   // Methods that delegate to RawNominalType
@@ -140,6 +177,12 @@ public class NominalType {
     return rawType.superClass.instantiateGenerics(typeMap);
   }
 
+  public JSType getPrototype() {
+    Preconditions.checkState(rawType.isFinalized);
+    return rawType.getCtorPropDeclaredType("prototype")
+        .substituteGenerics(typeMap);
+  }
+
   public ImmutableSet<NominalType> getInstantiatedInterfaces() {
     Preconditions.checkState(rawType.isFinalized);
     ImmutableSet.Builder<NominalType> result = ImmutableSet.builder();
@@ -150,6 +193,15 @@ public class NominalType {
   }
 
   Property getProp(String pname) {
+    if (rawType.name.equals("Array")
+        && NUMERIC_PATTERN.matcher(pname).matches()) {
+      if (typeMap.isEmpty()) {
+        return Property.make(JSType.UNKNOWN, null);
+      }
+      Preconditions.checkState(typeMap.size() == 1);
+      JSType elmType = Iterables.getOnlyElement(typeMap.values());
+      return Property.make(elmType, null);
+    }
     Property p = rawType.getProp(pname);
     return p == null ? null : p.substituteGenerics(typeMap);
   }
@@ -167,8 +219,10 @@ public class NominalType {
     return p != null && p.isConstant();
   }
 
-  static JSType createConstructorObject(FunctionType ctorFn) {
-    return ctorFn.nominalType.rawType.createConstructorObject(ctorFn);
+  static JSType createConstructorObject(
+      FunctionType ctorFn, NominalType builtinFunction) {
+    return ctorFn.nominalType.rawType
+        .createConstructorObject(ctorFn, builtinFunction);
   }
 
   boolean isSubclassOf(NominalType other) {
@@ -195,19 +249,7 @@ public class NominalType {
     // interface <: interface
     if (rawType.isInterface && otherRawType.isInterface) {
       if (rawType.equals(otherRawType)) {
-        if (!typeMap.isEmpty()) {
-          for (String typeVar : rawType.getTypeParameters()) {
-            Preconditions.checkState(other.typeMap.containsKey(typeVar),
-                "Other (%s) doesn't contain mapping (%s->%s) from this (%s)",
-                other, typeVar, typeMap.get(typeVar), this);
-            if (!typeMap.get(typeVar).isSubtypeOf(other.typeMap.get(typeVar))) {
-              return false;
-            }
-          }
-        } else if (!other.typeMap.isEmpty()) {
-          return false;
-        }
-        return true;
+        return areTypeParametersSubtypes(other);
       } else if (rawType.interfaces == null) {
         return false;
       } else {
@@ -222,26 +264,51 @@ public class NominalType {
 
     // class <: class
     if (rawType.equals(otherRawType)) {
-      if (!typeMap.isEmpty()) {
-        for (String typeVar : rawType.getTypeParameters()) {
-          Preconditions.checkState(typeMap.containsKey(typeVar),
-              "Type variable %s not in the domain: %s",
-              typeVar, typeMap.keySet());
-          Preconditions.checkState(other.typeMap.containsKey(typeVar));
-          if (!typeMap.get(typeVar).isSubtypeOf(other.typeMap.get(typeVar))) {
-            return false;
-          }
-        }
-      } else if (!other.typeMap.isEmpty()) {
-        return false;
-      }
-      return true;
+      return areTypeParametersSubtypes(other);
     } else if (rawType.superClass == null) {
       return false;
     } else {
       return rawType.superClass.instantiateGenerics(typeMap)
           .isSubclassOf(other);
     }
+  }
+
+  private boolean areTypeParametersSubtypes(NominalType other) {
+    Preconditions.checkState(rawType.equals(other.rawType));
+    if (typeMap.isEmpty()) {
+      return other.instantiationIsUnknownOrIdentity();
+    }
+    if (other.typeMap.isEmpty()) {
+      return instantiationIsUnknownOrIdentity();
+    }
+    for (String typeVar : rawType.getTypeParameters()) {
+      Preconditions.checkState(typeMap.containsKey(typeVar),
+          "Type variable %s not in the domain: %s",
+          typeVar, typeMap.keySet());
+      Preconditions.checkState(other.typeMap.containsKey(typeVar),
+          "Other (%s) doesn't contain mapping (%s->%s) from this (%s)",
+          other, typeVar, typeMap.get(typeVar), this);
+      if (!typeMap.get(typeVar).isSubtypeOf(other.typeMap.get(typeVar))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private boolean instantiationIsUnknownOrIdentity() {
+    if (this.typeMap.isEmpty()) {
+      return true;
+    }
+    for (String typeVar : this.rawType.getTypeParameters()) {
+      Preconditions.checkState(this.typeMap.containsKey(typeVar),
+          "Type variable %s not in the domain: %s",
+          typeVar, this.typeMap.keySet());
+      JSType t = this.typeMap.get(typeVar);
+      if (!t.isUnknown() && !t.equals(JSType.fromTypeVar(typeVar))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   // A special-case of join
@@ -277,9 +344,14 @@ public class NominalType {
       // Non-generic nominal types don't contribute to the unification.
       return true;
     }
-    // Both nominal types must already be instantiated when unifyWith is called.
+    // Most of the time, both nominal types are already instantiated when
+    // unifyWith is called. Rarely, when we call a polymorphic function from the
+    // body of a method of a polymorphic class, then other.typeMap is empty.
+    // For now, don't do anything fancy in that case.
     Preconditions.checkState(!typeMap.isEmpty());
-    Preconditions.checkState(!other.typeMap.isEmpty());
+    if (other.typeMap.isEmpty()) {
+      return true;
+    }
     boolean hasUnified = true;
     for (String typeParam : rawType.typeParameters) {
       hasUnified = hasUnified && typeMap.get(typeParam).unifyWith(
@@ -341,6 +413,7 @@ public class NominalType {
     private final ImmutableList<String> typeParameters;
     private final ObjectKind objectKind;
     private FunctionType ctorFn;
+    private NominalType builtinFunction;
 
     private RawNominalType(String name, ImmutableList<String> typeParameters,
         boolean isInterface, ObjectKind objectKind) {
@@ -354,8 +427,11 @@ public class NominalType {
       this.objectKind = objectKind;
       this.wrappedAsNominal =
           new NominalType(ImmutableMap.<String, JSType>of(), this);
-      this.wrappedAsJSType = JSType.fromObjectType(
-          ObjectType.fromNominalType(this.wrappedAsNominal));
+      ObjectType objInstance = "Function".equals(name)
+          ? ObjectType.fromFunction(
+              FunctionType.TOP_FUNCTION, this.wrappedAsNominal)
+          : ObjectType.fromNominalType(this.wrappedAsNominal);
+      this.wrappedAsJSType = JSType.fromObjectType(objInstance);
       this.wrappedAsNullableJSType = JSType.join(JSType.NULL,
           this.wrappedAsJSType);
     }
@@ -413,9 +489,11 @@ public class NominalType {
       return typeParameters;
     }
 
-    public void setCtorFunction(FunctionType ctorFn) {
+    public void setCtorFunction(
+        FunctionType ctorFn, NominalType builtinFunction) {
       Preconditions.checkState(!isFinalized);
       this.ctorFn = ctorFn;
+      this.builtinFunction = builtinFunction;
     }
 
     private boolean hasAncestorClass(RawNominalType ancestor) {
@@ -666,13 +744,13 @@ public class NominalType {
       return super.getPropDeclaredType(pname);
     }
 
-
     // Returns the (function) object referred to by the constructor of this
     // class.
-    private JSType createConstructorObject(FunctionType ctorFn) {
-      return withNamedTypes(
-          ObjectType.makeObjectType(null, otherProps, ctorFn,
-              ctorFn.isLoose(), ObjectKind.UNRESTRICTED));
+    private JSType createConstructorObject(
+        FunctionType ctorFn, NominalType builtinFunction) {
+      return withNamedTypes(ObjectType.makeObjectType(
+          builtinFunction, otherProps, ctorFn,
+          ctorFn.isLoose(), ObjectKind.UNRESTRICTED));
     }
 
     private StringBuilder appendGenericSuffixTo(
@@ -684,7 +762,7 @@ public class NominalType {
         return builder;
       }
       boolean firstIteration = true;
-      builder.append(".<");
+      builder.append("<");
       for (String typeParam : typeParameters) {
         if (!firstIteration) {
           builder.append(',');
@@ -723,8 +801,8 @@ public class NominalType {
 
     @Override
     public JSType toJSType() {
-      Preconditions.checkState(ctorFn != null);
-      return createConstructorObject(ctorFn);
+      Preconditions.checkState(this.isFinalized);
+      return createConstructorObject(ctorFn, builtinFunction);
     }
 
     public NominalType getAsNominalType() {

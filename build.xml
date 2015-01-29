@@ -54,7 +54,6 @@
   <property name="tools.dir" value="${basedir}/tools" />
   <property name="compiler-jarfile"
             value="${build.dir}/${ant.project.name}.jar" />
-  <property name="num-fuzz-tests" value="10000"/>
 
   <property name="webservice.dir" value="${basedir}/src/com/google/javascript/jscomp/webservice" />
   <property name="webservice-classes.dir" value = "${build.dir}/webservice-classes" />
@@ -113,7 +112,7 @@
     <fileset dir="${lib.dir}">
       <include name="args4j.jar"/>
       <include name="guava.jar"/>
-      <include name="json.jar"/>
+      <include name="gson.jar"/>
       <include name="jsr305.jar"/>
       <include name="protobuf-java.jar"/>
     </fileset>
@@ -138,6 +137,7 @@
            destdir="${classes.dir}"
            excludes=".svn,.git"
            debug="${javac.debug}"
+           deprecation="on"
            includeantruntime="false">
       <classpath refid="srcclasspath.path" />
       <compilerarg value="-Xlint:unchecked"/>
@@ -146,6 +146,7 @@
            destdir="${classes.dir}"
            excludes=".svn,.git,**/refactoring/**,**/webservice/**,**/testing/**"
            debug="${javac.debug}"
+           deprecation="on"
            includeantruntime="true">
       <classpath refid="srcclasspath.path" />
       <compilerarg value="-Xlint:unchecked"/>
@@ -183,7 +184,7 @@
       <fileset dir="${build.dir}" includes="externs.zip" />
       <zipfileset src="${lib.dir}/args4j.jar"/>
       <zipfileset src="${lib.dir}/guava.jar"/>
-      <zipfileset src="${lib.dir}/json.jar"/>
+      <zipfileset src="${lib.dir}/gson.jar"/>
       <zipfileset src="${lib.dir}/jsr305.jar"/>
       <zipfileset src="${lib.dir}/protobuf-java.jar"/>
 
@@ -202,6 +203,7 @@
            destdir="${testClasses.dir}"
            excludes=".svn,.git"
            debug="on"
+           deprecation="on"
            includeantruntime="false">
       <classpath refid="allclasspath.path" />
       <compilerarg value="-Xlint:unchecked"/>
@@ -210,6 +212,7 @@
            destdir="${testClasses.dir}"
            excludes=".svn,.git"
            debug="on"
+           deprecation="on"
            includeantruntime="false">
       <classpath refid="allclasspath.path" />
       <compilerarg value="-Xlint:unchecked"/>
@@ -277,19 +280,6 @@
           message="Unit tests failed. See build/testoutput/index.html" />
   </target>
 
-  <target name="fuzz-test"
-          depends="all-classes-jar"
-          description="checks the compiler against a variety of js programs">
-      <exec executable="java" failonerror="true">
-        <arg value="-cp" />
-        <arg value="${compiler-jarfile}" />
-        <arg value="com.google.javascript.jscomp.regtests.CompileEachLineOfProgramOutput" />
-        <arg value="generatejs"/>
-        <arg value="--stdout"/>
-        <arg value="${num-fuzz-tests}"/>
-      </exec>
-  </target>
-
   <target name="javadoc"
           description="generate Javadoc">
     <mkdir dir="${javadoc.dir}" />
@@ -342,7 +332,8 @@
     <javac srcdir="${webservice.dir}"
            destdir="${webservice-classes.dir}"
            excludes=".svn,.git"
-           debug="${javac.debug}">
+           debug="${javac.debug}"
+           deprecation="on">
       <classpath refid="webservice-classpath.path" />
     </javac>
   </target>
@@ -379,7 +370,8 @@
     <javac srcdir="${refasterjs.dir}"
            destdir="${refasterjs-classes.dir}"
            excludes=".svn,.git"
-           debug="${javac.debug}">
+           debug="${javac.debug}"
+           deprecation="on">
       <classpath refid="refasterjs-classpath.path" />
     </javac>
   </target>
@@ -390,6 +382,7 @@
    <zip destfile="${build.dir}/externs.zip" basedir="${externs.dir}" includes="*.js" />
    <jar destfile="${refasterjs-jarfile}" update="true">
      <zipgroupfileset dir="${lib.dir}" includes="*.jar"/>
+     <fileset dir="${build.dir}" includes="externs.zip" />
      <fileset dir="${classes.dir}" />
      <fileset dir="${refasterjs-classes.dir}" />
      <manifest>

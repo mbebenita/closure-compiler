@@ -17,6 +17,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import com.google.common.base.Joiner;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.testing.BaseJSTypeTestCase;
@@ -65,7 +67,11 @@ abstract class CompilerTypeTestCase extends BaseJSTypeTestCase {
 
   /** A default set of externs for testing. */
   static final String DEFAULT_EXTERNS =
-      "/** @constructor \n * @param {*=} opt_value */ " +
+      "/**\n" +
+      " * @constructor\n" +
+      " * @param {*=} opt_value\n" +
+      " * @return {!Object}\n" +
+      " */\n" +
       "function Object(opt_value) {}" +
       "/** @constructor \n * @param {*} var_args */ " +
       "function Function(var_args) {}" +
@@ -81,7 +87,7 @@ abstract class CompilerTypeTestCase extends BaseJSTypeTestCase {
       " * @template T\n" +
       " * @constructor\n" +
       " * @param {*} var_args\n" +
-      " * @return {!Array}\n" +
+      " * @return {!Array.<?>}\n" +
       " */\n" +
       "function Array(var_args) {}\n" +
       "/** @type {number} */ Array.prototype.length;\n" +
@@ -125,10 +131,12 @@ abstract class CompilerTypeTestCase extends BaseJSTypeTestCase {
     JSError[] warnings = compiler.getWarnings();
     for (int i = 0; i < expected.length; i++) {
       if (expected[i] != null) {
-        assertTrue("expected a warning", warnings.length > 0);
-        assertEquals(expected[i], warnings[0].description);
-        warnings = Arrays.asList(warnings).subList(1, warnings.length).toArray(
-            new JSError[warnings.length - 1]);
+        assertThat(warnings.length).named("Number of warnings").isGreaterThan(0);
+        assertThat(warnings[0].description).isEqualTo(expected[i]);
+        warnings =
+            Arrays.asList(warnings)
+                .subList(1, warnings.length)
+                .toArray(new JSError[warnings.length - 1]);
       }
     }
     if (warnings.length > 0) {

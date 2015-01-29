@@ -713,8 +713,8 @@ class PeepholeFoldConstants extends AbstractPeepholeOptimization {
     // Unlike other operations, ADD operands are not always converted
     // to Number.
     if (opType == Token.ADD
-        && (NodeUtil.mayBeString(left, false)
-            || NodeUtil.mayBeString(right, false))) {
+        && (NodeUtil.mayBeString(left)
+            || NodeUtil.mayBeString(right))) {
       return null;
     }
 
@@ -837,7 +837,7 @@ class PeepholeFoldConstants extends AbstractPeepholeOptimization {
   private Node tryFoldAdd(Node node, Node left, Node right) {
     Preconditions.checkArgument(node.isAdd());
 
-    if (NodeUtil.mayBeString(node, true)) {
+    if (NodeUtil.mayBeString(node)) {
       if (NodeUtil.isLiteralValue(left, false) &&
           NodeUtil.isLiteralValue(right, false)) {
         // '6' + 7
@@ -1291,10 +1291,7 @@ class PeepholeFoldConstants extends AbstractPeepholeOptimization {
     }
 
     // we can fold in the case "" + new String("")
-    if (n.getParent().isAdd()) {
-      return true;
-    }
-    return false;
+    return n.getParent().isAdd();
   }
 
   private Node tryFoldInForcedStringContext(Node n) {
