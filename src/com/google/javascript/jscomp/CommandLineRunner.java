@@ -587,6 +587,8 @@ public class CommandLineRunner extends
             .put("ADVANCED", CompilationLevel.ADVANCED_OPTIMIZATIONS)
             .put("ADVANCED_OPTIMIZATIONS", CompilationLevel.ADVANCED_OPTIMIZATIONS)
             .put("SHUMWAY_OPTIMIZATIONS", CompilationLevel.SHUMWAY_OPTIMIZATIONS)
+            .put("J2ME_OPTIMIZATIONS", CompilationLevel.J2ME_OPTIMIZATIONS)
+            .put("J2ME_AOT_OPTIMIZATIONS", CompilationLevel.J2ME_AOT_OPTIMIZATIONS)
             .build();
 
     /**
