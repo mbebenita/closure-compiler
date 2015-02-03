@@ -18,6 +18,11 @@ package com.google.javascript.jscomp;
 
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 
+/**
+ * Tests the conversion of closure-style type declarations in JSDoc
+ * to inline type declarations, by running both syntaxes through the parser
+ * and verifying the resulting AST is the same.
+ */
 public class Es6InlineTypesTest extends CompilerTestCase {
 
   @Override
@@ -36,7 +41,7 @@ public class Es6InlineTypesTest extends CompilerTestCase {
 
   @Override
   public CompilerPass getProcessor(Compiler compiler) {
-    return new Es6TypeDeclarations(compiler);
+    return new ConvertToTypedES6(compiler);
   }
 
   @Override
@@ -62,17 +67,19 @@ public class Es6InlineTypesTest extends CompilerTestCase {
   }
 
   public void testFunctionInsideAssignment() throws Exception {
-    test("/** @param {boolean} b @return {boolean} */ var f = function(b){return !b};",
+    test("/** @param {boolean} b @return {boolean} */ "
+            + "var f = function(b){return !b};",
         "var f = function(b: boolean): boolean { return !b; };");
   }
 
   public void testNestedFunctions() throws Exception {
-    test("/**@param {boolean} b*/ var f = function(b){var t = function(l) {}; t();};",
-            "var f = function(b: boolean) {" +
-            "  var t = function(l) {" +
-            "  };" +
-            "  t();" +
-            "};");
+    test("/**@param {boolean} b*/ "
+            + "var f = function(b){var t = function(l) {}; t();};",
+            "var f = function(b: boolean) {"
+            + "  var t = function(l) {"
+            + "  };"
+            + "  t();"
+            + "};");
   }
 
   public void testUnknownType() throws Exception {

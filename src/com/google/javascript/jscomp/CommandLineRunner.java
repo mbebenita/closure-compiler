@@ -62,6 +62,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -133,7 +134,11 @@ public class CommandLineRunner extends
   // I don't really care about unchecked warnings in this class.
   @SuppressWarnings("unchecked")
   private static class Flags {
-    private static List<GuardLevel> guardLevels = new ArrayList<>();
+    // Some clients run a few copies of the compiler through CommandLineRunner
+    // on parallel threads (thankfully, with the same flags),
+    // so the access to |guardLevels| should be at least synchronized.
+    private static List<GuardLevel> guardLevels =
+        Collections.synchronizedList(new ArrayList<CommandLineRunner.GuardLevel>());
 
     @Option(name = "--help",
         hidden = true,
@@ -506,6 +511,13 @@ public class CommandLineRunner extends
         + "Options: ECMASCRIPT3, ECMASCRIPT5, ECMASCRIPT5_STRICT"
         + "ECMASCRIPT6_TYPED (experimental)")
     private String languageOut = "";
+
+    @Option(name = "--allow_es6_out",
+        hidden = true,
+        usage = "Experimental: Allows ES6 language_out, for compiling "
+        + "ES6 to ES6 as well as transpiling to ES6 from lower versions. "
+        + "Enabling this flag may cause the compiler to crash.")
+    private boolean allowEs6Out = false;
 
     @Option(name = "--version",
         hidden = true,
@@ -1048,8 +1060,7 @@ public class CommandLineRunner extends
           .setWarningsWhitelistFile(flags.warningsWhitelistFile)
           .setAngularPass(flags.angularPass)
           .setTracerMode(flags.tracerMode)
-          .setNewTypeInference(flags.useNewTypeInference)
-          .setRenamePrefixNamespace(flags.renamePrefixNamespace);
+          .setNewTypeInference(flags.useNewTypeInference);
     }
     errorStream = null;
   }
@@ -1069,6 +1080,7 @@ public class CommandLineRunner extends
       options.setCodingConvention(new ClosureCodingConvention());
     }
 
+    options.setAllowEs6Out(flags.allowEs6Out);
     options.setExtraAnnotationNames(flags.extraAnnotationName);
 
     CompilationLevel level = flags.compilationLevelParsed;
@@ -1227,6 +1239,7 @@ public class CommandLineRunner extends
     "v8.js",
     "webstorage.js",
     "w3c_anim_timing.js",
+    "w3c_encoding.js",
     "w3c_css3d.js",
     "w3c_elementtraversal.js",
     "w3c_geolocation.js",

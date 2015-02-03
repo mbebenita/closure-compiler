@@ -26,7 +26,15 @@ import com.google.javascript.rhino.Node;
 
 import junit.framework.TestCase;
 
-public class Es6TypeDeclarationsTest extends TestCase {
+/**
+ * Verifies that the compiler pass can find JSDoc type annotations on various
+ * Node types, and that it sets a declaredTypeExpression property on the Node.
+ *
+ * <p>Exhaustive testing of the transformation between the two type declaration
+ * styles is in
+ * {@link com.google.javascript.jscomp.parsing.TypeDeclarationsIRFactoryTest}
+ */
+public class ConvertToTypedES6Test extends TestCase {
 
   private Compiler compiler;
 
@@ -52,14 +60,20 @@ public class Es6TypeDeclarationsTest extends TestCase {
         "n", numberType());
   }
 
+  public void testNoEmptyTypeAnnotationsAttached() throws Exception {
+    Node b = findNode(compile("/** some jsdoc */ function b() {}"), "b");
+    assertNull(b.getDeclaredTypeExpression());
+  }
+
   public Node compile(String js) {
     SourceFile input = SourceFile.fromCode("js", js);
     CompilerOptions options = new CompilerOptions();
-    options.setRenamingPolicy(VariableRenamingPolicy.OFF, PropertyRenamingPolicy.OFF);
+    options.setRenamingPolicy(
+        VariableRenamingPolicy.OFF, PropertyRenamingPolicy.OFF);
     compiler.init(ImmutableList.<SourceFile>of(), ImmutableList.of(input), options);
     compiler.parseInputs();
 
-    CompilerPass pass = new Es6TypeDeclarations(compiler);
+    CompilerPass pass = new ConvertToTypedES6(compiler);
     pass.process(
         compiler.getRoot().getFirstChild(),
         compiler.getRoot().getLastChild());
@@ -69,18 +83,28 @@ public class Es6TypeDeclarationsTest extends TestCase {
 
   private void assertIdentifierHasType(Node root, String identifier,
       TypeDeclarationNode expectedType) {
-    FindNode visitor = new FindNode(identifier);
-    NodeTraversal.traverse(compiler, root, visitor);
-    assertNotNull("Did not find a node named " + identifier + " in " + root.toStringTree(),
-        visitor.foundNode);
-    TypeDeclarationNode actualType = visitor.foundNode.getDeclaredTypeExpression();
-    assertNotNull(identifier + " missing DECLARED_TYPE_EXPR in " + root.toStringTree(),
+    TypeDeclarationNode actualType =
+        findNode(root, identifier).getDeclaredTypeExpression();
+    assertNotNull(
+        identifier + " missing DECLARED_TYPE_EXPR in " + root.toStringTree(),
         actualType);
-    assertTrue(visitor.foundNode + " is of type " + actualType
-        + " not of type " + expectedType, expectedType.isEquivalentTo(actualType));
+    assertTrue(findNode(root, identifier) + " is of type " + actualType
+        + " not of type " + expectedType,
+        expectedType.isEquivalentTo(actualType));
   }
 
-  private static class FindNode extends NodeTraversal.AbstractPostOrderCallback {
+  private Node findNode(Node root, String identifier) {
+    FindNode visitor = new FindNode(identifier);
+    NodeTraversal.traverse(compiler, root, visitor);
+    Node foundNode = visitor.foundNode;
+    assertNotNull(
+        "Did not find node named " + identifier + " in " + root.toStringTree(),
+        foundNode);
+    return foundNode;
+  }
+
+  private static class FindNode extends NodeTraversal.AbstractPostOrderCallback
+  {
     final String name;
     Node foundNode;
 
@@ -90,8 +114,10 @@ public class Es6TypeDeclarationsTest extends TestCase {
 
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
-      // Return type is attached to FUNCTION node, but the qualifiedName is on the child NAME node.
-      if (parent != null && parent.isFunction() && n.matchesQualifiedName(name)) {
+      // Return type is attached to FUNCTION node, but the qualifiedName is on
+      // the child NAME node.
+      if (parent != null && parent.isFunction()
+          && n.matchesQualifiedName(name)) {
         foundNode = parent;
       } else if (n.matchesQualifiedName(name)) {
         foundNode = n;

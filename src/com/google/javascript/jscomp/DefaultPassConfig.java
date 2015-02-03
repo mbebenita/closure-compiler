@@ -216,11 +216,11 @@ public class DefaultPassConfig extends PassConfig {
       checks.add(closureRewriteModule);
     }
 
-    if (options.needsConversion() || options.aggressiveVarCheck.isOn()) {
+    if (options.lowerFromEs6() || options.aggressiveVarCheck.isOn()) {
       checks.add(checkVariableReferences);
     }
 
-    if (options.needsConversion()) {
+    if (options.lowerFromEs6()) {
       checks.add(es6RenameVariablesInParamLists);
       checks.add(es6SplitVariableDeclarations);
       checks.add(es6ConvertSuper);
@@ -230,11 +230,15 @@ public class DefaultPassConfig extends PassConfig {
       checks.add(markTranspilationDone);
     }
 
+    if (options.raiseToEs6Typed()) {
+      checks.add(convertToTypedES6);
+    }
+
     if (options.transpileOnly) {
       return checks;
     }
 
-    if (options.needsConversion()) {
+    if (options.lowerFromEs6()) {
       checks.add(es6RuntimeLibrary);
     }
 
@@ -406,10 +410,6 @@ public class DefaultPassConfig extends PassConfig {
     if (options.nameReferenceReportPath != null &&
         !options.nameReferenceReportPath.isEmpty()) {
       checks.add(printNameReferenceReport);
-    }
-
-    if (options.getLanguageOut() == LanguageMode.ECMASCRIPT6_TYPED) {
-      checks.add(es6TypeDeclarations);
     }
 
     checks.add(createEmptyPass("afterStandardChecks"));
@@ -1150,10 +1150,11 @@ public class DefaultPassConfig extends PassConfig {
     }
   };
 
-  final PassFactory es6TypeDeclarations = new PassFactory("Es6TypeDeclarations", true) {
+  final PassFactory convertToTypedES6 =
+      new PassFactory("ConvertToTypedES6", true) {
     @Override
     CompilerPass create(AbstractCompiler compiler) {
-      return new Es6TypeDeclarations(compiler);
+      return new ConvertToTypedES6(compiler);
     }
   };
 
