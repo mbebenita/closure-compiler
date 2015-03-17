@@ -782,6 +782,10 @@ public class DefaultPassConfig extends PassConfig {
       passes.add(inlineSimpleMethods);
     }
 
+    if (options.inlineAnnotatedMethods) {
+      passes.add(inlineAnnotatedMethods);
+    }
+
     passes.addAll(getCodeRemovingPasses());
 
     if (options.inlineFunctions || options.inlineLocalFunctions) {
@@ -2007,6 +2011,19 @@ public class DefaultPassConfig extends PassConfig {
     @Override
     protected CompilerPass create(AbstractCompiler compiler) {
       return new InlineSimpleMethods(compiler);
+    }
+  };
+
+  /** Inlines methods annotated with {@code @inline} */
+  final PassFactory inlineAnnotatedMethods =
+      new PassFactory("inlineAnnotatedMethods", false) {
+    @Override
+    protected CompilerPass create(AbstractCompiler compiler) {
+      return new InlineAnnotatedMethods(compiler,
+          compiler.getUniqueNameIdSupplier(),
+          options.assumeStrictThis()
+              || options.getLanguageIn() == LanguageMode.ECMASCRIPT5_STRICT,
+          options.assumeClosuresOnlyCaptureReferences);
     }
   };
 

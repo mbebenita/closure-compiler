@@ -3254,6 +3254,11 @@ public final class NodeUtil {
     return jsdoc != null && jsdoc.isConstant() && !jsdoc.isDefine();
   }
 
+  static boolean hasInlineAnnotation(Node node) {
+    JSDocInfo jsdoc = getBestJSDocInfo(node);
+    return jsdoc != null && jsdoc.isInline();
+  }
+
   static boolean isConstantVar(Node node, Scope scope) {
     if (isConstantName(node)) {
       return true;

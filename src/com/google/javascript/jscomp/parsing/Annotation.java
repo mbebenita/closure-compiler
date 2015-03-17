@@ -46,6 +46,7 @@ enum Annotation {
   IMPLEMENTS,
   IMPLICIT_CAST,
   INHERIT_DOC,
+  INLINE,
   INTERFACE,
   JAGGER_INJECT,
   JAGGER_MODULE,
@@ -108,6 +109,7 @@ enum Annotation {
       put("implements", Annotation.IMPLEMENTS).
       put("implicitCast", Annotation.IMPLICIT_CAST).
       put("inheritDoc", Annotation.INHERIT_DOC).
+      put("inline", Annotation.INLINE).
       put("interface", Annotation.INTERFACE).
       put("jaggerInject", Annotation.JAGGER_INJECT).
       put("jaggerModule", Annotation.JAGGER_MODULE).

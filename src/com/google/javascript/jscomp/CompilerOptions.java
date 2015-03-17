@@ -354,6 +354,9 @@ public class CompilerOptions implements Serializable, Cloneable {
   /** Inlines trivial getters */
   public boolean inlineGetters;
 
+  /** Inlines methods annotated with {@code @inline} */
+  public boolean inlineAnnotatedMethods;
+
   /** Inlines variables */
   public boolean inlineVariables;
 
@@ -999,6 +1002,7 @@ public class CompilerOptions implements Serializable, Cloneable {
     parentModuleCanSeeSymbolsDeclaredInChildren = false;
     crossModuleMethodMotion = false;
     inlineGetters = false;
+    inlineAnnotatedMethods = false;
     inlineVariables = false;
     inlineLocalVariables = false;
     smartNameRemoval = false;
@@ -1842,6 +1846,10 @@ public class CompilerOptions implements Serializable, Cloneable {
 
   public void setInlineGetters(boolean inlineGetters) {
     this.inlineGetters = inlineGetters;
+  }
+
+  public void setInlineAnnotatedMethods(boolean inlineAnnotatedMethods) {
+    this.inlineAnnotatedMethods = inlineAnnotatedMethods;
   }
 
   public void setInlineVariables(boolean inlineVariables) {

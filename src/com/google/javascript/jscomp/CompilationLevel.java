@@ -233,6 +233,7 @@ public enum CompilationLevel {
     options.setInlineFunctions(Reach.ALL);
     options.setAssumeClosuresOnlyCaptureReferences(false);
     options.inlineGetters = true;
+    options.inlineAnnotatedMethods = true;
     options.setInlineVariables(Reach.ALL);
     options.flowSensitiveInlineVariables = true;
     options.computeFunctionSideEffects = true;

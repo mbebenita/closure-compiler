@@ -401,6 +401,7 @@ public class JSDocInfo implements Serializable {
   private static final int MASK_DICT          = 0x00800000; // @dict
   private static final int MASK_STALBEIDGEN   = 0x01000000; // @stableIdGenerator
   private static final int MASK_MAPPEDIDGEN   = 0x02000000; // @idGenerator {mapped}
+  private static final int MASK_INLINE        = 0x04000000; // @inline
 
   // 3 bit type field stored in the top 3 bits of the most significant
   // nibble.
@@ -571,6 +572,10 @@ public class JSDocInfo implements Serializable {
 
   void setNoCompile(boolean value) {
     setFlag(value, MASK_NOCOMPILE);
+  }
+
+  void setInline(boolean value) {
+    setFlag(value, MASK_INLINE);
   }
 
   private void setFlag(boolean value, int mask) {
@@ -757,6 +762,14 @@ public class JSDocInfo implements Serializable {
   }
 
   /**
+   * Returns whether the {@code @inline} annotation is present on this
+   * {@link JSDocInfo}.
+   */
+  public boolean isInline() {
+    return getFlag(MASK_INLINE);
+  }
+
+  /**
    * @return Whether there is a declaration present on this {@link JSDocInfo}.
    */
   public boolean containsDeclaration() {
@@ -774,7 +787,8 @@ public class JSDocInfo implements Serializable {
             | MASK_DEPRECATED
             | MASK_INTERFACE
             | MASK_IMPLICITCAST
-            | MASK_NOSIDEEFFECTS));
+            | MASK_NOSIDEEFFECTS
+            | MASK_INLINE));
   }
 
   /**
@@ -786,7 +800,7 @@ public class JSDocInfo implements Serializable {
         || hasReturnType()
         || hasThisType()
         || getParameterCount() > 0
-        || getFlag(MASK_CONSTRUCTOR)
+        || getFlag(MASK_CONSTRUCTOR | MASK_INLINE)
         || (getFlag(MASK_NOSIDEEFFECTS) && (!hasType() || hasFunctionType));
   }
 

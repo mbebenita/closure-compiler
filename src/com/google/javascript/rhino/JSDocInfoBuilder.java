@@ -1230,4 +1230,19 @@ final public class JSDocInfoBuilder {
     return currentInfo.isNoSideEffects() ||
         currentInfo.hasModifies();
   }
+
+
+  /**
+   * Records that the {@link JSDocInfo} being built should have its
+   * {@link JSDocInfo#isInline()} flag set to {@code true}.
+   */
+  public boolean recordInline() {
+    if (!currentInfo.isInline()) {
+      currentInfo.setInline(true);
+      populated = true;
+      return true;
+    } else {
+      return false;
+    }
+  }
 }

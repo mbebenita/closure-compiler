@@ -1199,6 +1199,13 @@ public final class JsDocInfoParser {
           }
 
           return eatUntilEOLIfNotAnnotation();
+
+        case INLINE:
+          if (!jsdocBuilder.recordInline()) {
+            parser.addParserWarning("msg.jsdoc.inline",
+                stream.getLineno(), stream.getCharno());
+          }
+          return eatUntilEOLIfNotAnnotation();
       }
     }
 
