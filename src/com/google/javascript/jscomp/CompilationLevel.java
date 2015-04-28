@@ -264,49 +264,105 @@ public enum CompilationLevel {
 
     // All the safe optimizations.
     options.dependencyOptions.setDependencySorting(true);
-    options.closurePass = true;
-    options.foldConstants = true;
-    options.coalesceVariableNames = true;
-    options.deadAssignmentElimination = true;
+    options.setClosurePass(true);
+    options.setFoldConstants(true);
+    options.setCoalesceVariableNames(false);
+    options.setDeadAssignmentElimination(true);
     options.setExtractPrototypeMemberDeclarations(true);
-    options.collapseVariableDeclarations = true;
+    options.setCollapseVariableDeclarations(true);
     options.convertToDottedProperties = true;
     options.labelRenaming = true;
-    options.removeDeadCode = true;
-    options.optimizeArgumentsArray = true;
+    options.setRemoveDeadCode(true);
+    options.setOptimizeArgumentsArray(true);
     options.collapseObjectLiterals = true;
     options.protectHiddenSideEffects = true;
 
     // All the advanced optimizations.
     options.removeClosureAsserts = true;
     options.reserveRawExports = true;
-    // We disable VariableRenamingPolicy for J2ME because we need symbols when profiling release builds.
     options.setRenamingPolicy(
-            VariableRenamingPolicy.OFF, PropertyRenamingPolicy.OFF);
+        VariableRenamingPolicy.OFF, PropertyRenamingPolicy.OFF);
     options.shadowVariables = true;
-    options.collapseAnonymousFunctions = true;
-    options.collapseProperties = true;
-    options.checkGlobalThisLevel = CheckLevel.WARNING;
-    options.rewriteFunctionExpressions = false;
-    options.inlineConstantVars = true;
+    options.setRemoveUnusedPrototypeProperties(false);
+    options.setRemoveUnusedPrototypePropertiesInExterns(false);
+    options.setRemoveUnusedClassProperties(false);
+    options.setCollapseAnonymousFunctions(true);
+    options.setCollapseProperties(true);
+    options.setCheckGlobalThisLevel(CheckLevel.WARNING);
+    options.setRewriteFunctionExpressions(false);
+    options.setSmartNameRemoval(false);
+    options.setInlineConstantVars(true);
     options.setInlineFunctions(Reach.ALL);
     options.setAssumeClosuresOnlyCaptureReferences(false);
-    options.inlineGetters = true;
+    options.setInlineGetters(true);
     options.setInlineVariables(Reach.ALL);
-    options.flowSensitiveInlineVariables = true;
-    options.computeFunctionSideEffects = true;
+    options.setFlowSensitiveInlineVariables(true);
+    options.setComputeFunctionSideEffects(true);
 
     // Remove unused vars also removes unused functions.
     options.setRemoveUnusedVariables(Reach.LOCAL_ONLY);
 
     // Move code around based on the defined modules.
-    options.crossModuleCodeMotion = true;
-    options.crossModuleMethodMotion = true;
+    options.setCrossModuleCodeMotion(true);
+    options.setCrossModuleMethodMotion(true);
 
     // Call optimizations
-    options.devirtualizePrototypeMethods = true;
+    options.setDevirtualizePrototypeMethods(true);
     options.optimizeParameters = true;
     options.optimizeReturns = true;
+    options.optimizeCalls = false;
+
+
+
+
+    // // Do not call applySafeCompilationOptions(options) because the call can
+    // // create possible conflicts between multiple diagnostic groups.
+
+    // // All the safe optimizations.
+    // options.dependencyOptions.setDependencySorting(true);
+    // options.closurePass = true;
+    // options.foldConstants = true;
+    // options.coalesceVariableNames = true;
+    // options.deadAssignmentElimination = true;
+    // options.setExtractPrototypeMemberDeclarations(true);
+    // options.collapseVariableDeclarations = true;
+    // options.convertToDottedProperties = true;
+    // options.labelRenaming = true;
+    // options.removeDeadCode = true;
+    // options.optimizeArgumentsArray = true;
+    // options.collapseObjectLiterals = true;
+    // options.protectHiddenSideEffects = true;
+
+    // // All the advanced optimizations.
+    // options.removeClosureAsserts = true;
+    // options.reserveRawExports = true;
+    // // We disable VariableRenamingPolicy for J2ME because we need symbols when profiling release builds.
+    // options.setRenamingPolicy(
+    //         VariableRenamingPolicy.OFF, PropertyRenamingPolicy.OFF);
+    // options.shadowVariables = true;
+    // options.collapseAnonymousFunctions = true;
+    // options.collapseProperties = true;
+    // options.checkGlobalThisLevel = CheckLevel.WARNING;
+    // options.rewriteFunctionExpressions = false;
+    // options.inlineConstantVars = true;
+    // options.setInlineFunctions(Reach.ALL);
+    // options.setAssumeClosuresOnlyCaptureReferences(false);
+    // options.inlineGetters = true;
+    // options.setInlineVariables(Reach.ALL);
+    // options.flowSensitiveInlineVariables = true;
+    // options.computeFunctionSideEffects = true;
+
+    // // Remove unused vars also removes unused functions.
+    // options.setRemoveUnusedVariables(Reach.LOCAL_ONLY);
+
+    // // Move code around based on the defined modules.
+    // options.crossModuleCodeMotion = true;
+    // options.crossModuleMethodMotion = true;
+
+    // // Call optimizations
+    // options.devirtualizePrototypeMethods = true;
+    // options.optimizeParameters = true;
+    // options.optimizeReturns = true;
 
     // The following optimizations break Shumway builds and need further investigation:
     //   options.removeUnusedPrototypeProperties = true;
