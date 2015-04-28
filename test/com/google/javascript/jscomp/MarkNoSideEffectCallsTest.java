@@ -16,11 +16,13 @@
 
 package com.google.javascript.jscomp;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import static com.google.javascript.jscomp.MarkNoSideEffectCalls.INVALID_NO_SIDE_EFFECT_ANNOTATION;
+
+import com.google.common.collect.ImmutableList;
+import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.Node;
+
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -28,8 +30,8 @@ import java.util.List;
  * Tests for {@link MarkNoSideEffectCalls}
  *
  */
-public class MarkNoSideEffectCallsTest extends CompilerTestCase {
-  List<String> noSideEffectCalls = Lists.newArrayList();
+public final class MarkNoSideEffectCallsTest extends CompilerTestCase {
+  List<String> noSideEffectCalls = new ArrayList<>();
 
   private static String kExterns =
       "function externSef1(){}" +
@@ -225,30 +227,27 @@ public class MarkNoSideEffectCallsTest extends CompilerTestCase {
   }
 
   public void testInvalidAnnotation1() throws Exception {
-    test("/** @nosideeffects */ function foo() {}",
-         null, INVALID_NO_SIDE_EFFECT_ANNOTATION);
+    testError("/** @nosideeffects */ function foo() {}", INVALID_NO_SIDE_EFFECT_ANNOTATION);
   }
 
   public void testInvalidAnnotation2() throws Exception {
-    test("var f = /** @nosideeffects */ function() {}",
-         null, INVALID_NO_SIDE_EFFECT_ANNOTATION);
+    testError("var f = /** @nosideeffects */ function() {}", INVALID_NO_SIDE_EFFECT_ANNOTATION);
   }
 
   public void testInvalidAnnotation3() throws Exception {
-    test("/** @nosideeffects */ var f = function() {}",
-         null, INVALID_NO_SIDE_EFFECT_ANNOTATION);
+    testError("/** @nosideeffects */ var f = function() {}", INVALID_NO_SIDE_EFFECT_ANNOTATION);
   }
 
   public void testInvalidAnnotation4() throws Exception {
-    test("var f = function() {};" +
+    testError("var f = function() {};" +
          "/** @nosideeffects */ f.x = function() {}",
-         null, INVALID_NO_SIDE_EFFECT_ANNOTATION);
+         INVALID_NO_SIDE_EFFECT_ANNOTATION);
   }
 
   public void testInvalidAnnotation5() throws Exception {
-    test("var f = function() {};" +
+    testError("var f = function() {};" +
          "f.x = /** @nosideeffects */ function() {}",
-         null, INVALID_NO_SIDE_EFFECT_ANNOTATION);
+         INVALID_NO_SIDE_EFFECT_ANNOTATION);
   }
 
   public void testCallNumber() throws Exception {

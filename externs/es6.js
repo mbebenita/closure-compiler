@@ -59,6 +59,7 @@ Iterable.prototype[Symbol.iterator] = function() {};
 function Iterator() {}
 
 /**
+ * @param {VALUE=} value
  * @return {{value:VALUE, done:boolean}}
  */
 Iterator.prototype.next;
@@ -220,6 +221,18 @@ Number.prototype.toLocaleString = function(opt_locales, opt_options) {};
 
 
 /**
+ * Repeats the string the given number of times.
+ *
+ * @param {number} count The number of times the string is repeated.
+ * @this {String|string}
+ * @return {string}
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/repeat
+ */
+String.prototype.repeat = function(count) {};
+
+
+/**
  * @see http://dev.w3.org/html5/postmsg/
  * @interface
  */
@@ -261,6 +274,12 @@ ArrayBufferView.prototype.byteOffset;
 
 /** @type {number} */
 ArrayBufferView.prototype.byteLength;
+
+
+/**
+ * @typedef {!ArrayBuffer|!ArrayBufferView}
+ */
+var BufferSource;
 
 
 /**

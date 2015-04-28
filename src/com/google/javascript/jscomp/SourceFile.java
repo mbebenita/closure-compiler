@@ -21,7 +21,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.io.CharStreams;
 import com.google.common.io.Files;
-import com.google.javascript.rhino.jstype.StaticSourceFile;
+import com.google.javascript.rhino.StaticSourceFile;
 
 import java.io.File;
 import java.io.IOException;
@@ -109,7 +109,7 @@ public class SourceFile implements StaticSourceFile, Serializable {
       return;
     }
     try {
-      String[] sourceLines = getCode().split("\n");
+      String[] sourceLines = getCode().split("\n", -1);
       lineOffsets = new int[sourceLines.length];
       for (int ii = 1; ii < sourceLines.length; ++ii) {
         lineOffsets[ii] =

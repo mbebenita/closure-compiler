@@ -17,14 +17,13 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 /**
  * {@link RenameProperties} tests.
  *
  */
 
-public class RenamePropertiesTest extends CompilerTestCase {
+public final class RenamePropertiesTest extends CompilerTestCase {
 
   private static final String EXTERNS =
       "var window;" +
@@ -332,7 +331,7 @@ public class RenamePropertiesTest extends CompilerTestCase {
         "Bar.prototype = {_getA: function(){}, _b: 0}; bar._getA();",
         "Bar.prototype = {a: function(){}, b: 0}; bar.a();",
         "Bar.prototype = {_getA: function(){}, _c: 1, _b: 0}; bar._getA();",
-        "Bar.prototype = {a: function(){}, c: 1,  b: 0}; bar.a();");
+        "Bar.prototype = {a: function(){}, c: 1, b: 0}; bar.a();");
   }
 
   public void testPropertyAddedToObjectStable() {
@@ -379,7 +378,7 @@ public class RenamePropertiesTest extends CompilerTestCase {
 
     Compiler compiler = new Compiler();
     compiler.compileModules(
-        ImmutableList.of(externsInput), Lists.newArrayList(modules), options);
+        ImmutableList.of(externsInput), ImmutableList.copyOf(modules), options);
     return compiler;
   }
 

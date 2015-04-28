@@ -17,16 +17,16 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
+import java.util.ArrayList;
 import java.util.List;
 
 
-public class CodePrinterTest extends CodePrinterTestBase {
+public final class CodePrinterTest extends CodePrinterTestBase {
 
   public void testPrint() {
     assertPrint("10 + a + b", "10+a+b");
@@ -363,6 +363,52 @@ public class CodePrinterTest extends CodePrinterTestBase {
     assertPrintSame("function f({a,b:[c,d]}){}");
   }
 
+  public void testDestructuringForInLoops() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+
+    assertPrintSame("for({a}in b)c");
+    assertPrintSame("for(var {a}in b)c");
+    assertPrintSame("for(let {a}in b)c");
+    assertPrintSame("for(const {a}in b)c");
+
+    assertPrintSame("for({a:b}in c)d");
+    assertPrintSame("for(var {a:b}in c)d");
+    assertPrintSame("for(let {a:b}in c)d");
+    assertPrintSame("for(const {a:b}in c)d");
+
+    assertPrintSame("for([a]in b)c");
+    assertPrintSame("for(var [a]in b)c");
+    assertPrintSame("for(let [a]in b)c");
+    assertPrintSame("for(const [a]in b)c");
+  }
+
+  public void testDestructuringForOfLoops1() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+
+    assertPrintSame("for({a}of b)c");
+    assertPrintSame("for(var {a}of b)c");
+    assertPrintSame("for(let {a}of b)c");
+    assertPrintSame("for(const {a}of b)c");
+
+    assertPrintSame("for({a:b}of c)d");
+    assertPrintSame("for(var {a:b}of c)d");
+    assertPrintSame("for(let {a:b}of c)d");
+    assertPrintSame("for(const {a:b}of c)d");
+
+    assertPrintSame("for([a]of b)c");
+    assertPrintSame("for(var [a]of b)c");
+    assertPrintSame("for(let [a]of b)c");
+    assertPrintSame("for(const [a]of b)c");
+  }
+
+  public void testDestructuringForOfLoops2() {
+    languageMode = LanguageMode.ECMASCRIPT6;
+
+    // The destructuring 'var' statement is a child of the for-of loop, but
+    // not the first child.
+    assertPrintSame("for(a of b)var {x}=y");
+  }
+
   public void testBreakTrustedStrings() {
     // Break scripts
     assertPrint("'<script>'", "\"<script>\"");
@@ -455,10 +501,10 @@ public class CodePrinterTest extends CodePrinterTestBase {
     // Test works with unary operators and calls.
     assertPrint("var a={}; for (var i = -(\"length\" in a); i;) {}",
         "var a={};for(var i=-(\"length\"in a);i;);");
-    assertPrint("var a={};function b_(p){ return p;};" +
-        "for(var i=1,j=b_(\"length\" in a);;) {}",
-        "var a={};function b_(p){return p}" +
-            "for(var i=1,j=b_(\"length\"in a);;);");
+    assertPrint("var a={};function b_(p){ return p;};"
+            + "for(var i=1,j=b_(\"length\" in a);;) {}",
+        "var a={};function b_(p){return p}"
+            + "for(var i=1,j=b_(\"length\"in a);;);");
 
     // Test we correctly handle an in operator in the test clause.
     assertPrint("var a={}; for (;(\"length\" in a);) {}",
@@ -1129,7 +1175,7 @@ public class CodePrinterTest extends CodePrinterTestBase {
               }
             }))
             .setOutputTypes(true)
-            .setTypeRegistry(lastCompiler.getTypeRegistry())
+            .setTypeRegistry(lastCompiler.getTypeIRegistry())
             .build());
   }
 
@@ -1570,7 +1616,7 @@ public class CodePrinterTest extends CodePrinterTestBase {
           }
         }))
         .setOutputTypes(false)
-        .setTypeRegistry(lastCompiler.getTypeRegistry())
+        .setTypeRegistry(lastCompiler.getTypeIRegistry())
         .setTagAsStrict(true)
         .build();
     assertEquals("'use strict';var x", result);
@@ -1705,7 +1751,9 @@ public class CodePrinterTest extends CodePrinterTestBase {
 
   public void testManyCommas() {
     int numCommas = 10000;
-    List<String> numbers = Lists.newArrayList("0", "1");
+    List<String> numbers = new ArrayList<>();
+    numbers.add("0");
+    numbers.add("1");
     Node current = new Node(Token.COMMA, Node.newNumber(0), Node.newNumber(1));
     for (int i = 2; i < numCommas; i++) {
       current = new Node(Token.COMMA, current);
@@ -1723,7 +1771,9 @@ public class CodePrinterTest extends CodePrinterTestBase {
 
   public void testManyAdds() {
     int numAdds = 10000;
-    List<String> numbers = Lists.newArrayList("0", "1");
+    List<String> numbers = new ArrayList<>();
+    numbers.add("0");
+    numbers.add("1");
     Node current = new Node(Token.ADD, Node.newNumber(0), Node.newNumber(1));
     for (int i = 2; i < numAdds; i++) {
       current = new Node(Token.ADD, current);
@@ -1861,12 +1911,12 @@ public class CodePrinterTest extends CodePrinterTestBase {
     assertPrettyPrint(
         "class C{}",
         "class C {\n}\n");
-    // TODO(johnlenz): fix line breaks
     assertPrettyPrint(
         "class C{member(){}get f(){}}",
         "class C {\n" +
         "  member() {\n" +
-        "  }get f() {\n" +
+        "  }\n" +
+        "  get f() {\n" +
         "  }\n" +
         "}\n");
     assertPrettyPrint(

@@ -23,19 +23,25 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 
 /**
- * Tests for {@link CheckRequiresForConstructors}.
+ * Tests for the "missing requires" check in {@link CheckRequiresForConstructors}.
  *
  */
 
-public class CheckRequiresForConstructorsTest extends CompilerTestCase {
-  public CheckRequiresForConstructorsTest() {
+public final class MissingRequireTest extends CompilerTestCase {
+  public MissingRequireTest() {
     super();
     enableRewriteClosureCode();
   }
 
   @Override
+  protected CompilerOptions getOptions(CompilerOptions options) {
+    options.setWarningLevel(DiagnosticGroups.MISSING_REQUIRE, CheckLevel.WARNING);
+    return super.getOptions(options);
+  }
+
+  @Override
   protected CompilerPass getProcessor(Compiler compiler) {
-    return new CheckRequiresForConstructors(compiler, CheckLevel.WARNING);
+    return new CheckRequiresForConstructors(compiler);
   }
 
   public void testPassWithNoNewNodes() {
@@ -44,23 +50,26 @@ public class CheckRequiresForConstructorsTest extends CompilerTestCase {
   }
 
   public void testPassWithOneNew() {
-    String js =
-        "var goog = {};" +
-        "goog.require('foo.bar.goo'); var bar = new foo.bar.goo();";
+    String js = Joiner.on('\n').join(
+        "var goog = {};",
+        "goog.require('foo.bar.goo');",
+        "var bar = new foo.bar.goo();");
     testSame(js);
   }
 
   public void testPassWithOneNewOuterClass() {
-    String js =
-        "var goog = {};" +
-        "goog.require('goog.foo.Bar'); var bar = new goog.foo.Bar.Baz();";
+    String js = Joiner.on('\n').join(
+        "var goog = {};",
+        "goog.require('goog.foo.Bar');",
+        "var bar = new goog.foo.Bar.Baz();");
     testSame(js);
   }
 
   public void testPassWithOneNewOuterClassWithUpperPrefix() {
-    String js =
-        "var goog = {};" +
-        "goog.require('goog.foo.IDBar'); var bar = new goog.foo.IDBar.Baz();";
+    String js = Joiner.on('\n').join(
+        "var goog = {};",
+        "goog.require('goog.foo.IDBar');",
+        "var bar = new goog.foo.IDBar.Baz();");
     testSame(js);
   }
 
@@ -71,17 +80,20 @@ public class CheckRequiresForConstructorsTest extends CompilerTestCase {
   }
 
   public void testPassWithTwoNewNodes() {
-    String js =
-        "var goog = {};" +
-        "goog.require('goog.foo.Bar');goog.require('goog.foo.Baz');" +
-        "var str = new goog.foo.Bar('g4'), num = new goog.foo.Baz(5); ";
+    String js = Joiner.on('\n').join(
+        "var goog = {};",
+        "goog.require('goog.foo.Bar');",
+        "goog.require('goog.foo.Baz');",
+        "var str = new goog.foo.Bar('g4'),",
+        "    num = new goog.foo.Baz(5);");
     testSame(js);
   }
 
   public void testPassWithNestedNewNodes() {
-    String js =
-        "var goog = {}; goog.require('goog.foo.Bar'); " +
-        "var str = new goog.foo.Bar(new goog.foo.Bar('5')); ";
+    String js = Joiner.on('\n').join(
+        "var goog = {};",
+        "goog.require('goog.foo.Bar');",
+        "var str = new goog.foo.Bar(new goog.foo.Bar('5'));");
     testSame(js);
   }
 
@@ -108,6 +120,31 @@ public class CheckRequiresForConstructorsTest extends CompilerTestCase {
     String js = "goog.require('example.Foo');"
       + "/** @constructor @implements {example.Foo} */"
       + "var Ctor = function() {};";
+    testSame(js);
+  }
+
+  public void testFailWithExtends() {
+    String[] js = new String[] {
+      "var goog = {};\n"
+      + "goog.provide('example.Foo');\n"
+      + "/** @constructor */ example.Foo = function() {};",
+
+      "/** @constructor @extends {example.Foo} */ var Ctor = function() {};"
+    };
+    String warning = "'example.Foo' used but not goog.require'd";
+    test(js, js, null, MISSING_REQUIRE_WARNING, warning);
+  }
+
+  public void testPassWithExtends() {
+    String js = "goog.require('example.Foo');"
+      + "/** @constructor @extends {example.Foo} */"
+      + "var Ctor = function() {};";
+    testSame(js);
+
+    // When @extends is on a non-function (typically an alias) don't warn.
+    js = "goog.require('some.other.Class');"
+      + "/** @constructor @extends {example.Foo} */"
+      + "var LocalAlias = some.other.Class;";
     testSame(js);
   }
 
@@ -149,11 +186,13 @@ public class CheckRequiresForConstructorsTest extends CompilerTestCase {
   }
 
   public void testNewNodesMeta() {
-    String js =
-        "var goog = {};" +
-        "/** @constructor */goog.ui.Option = function(){};"
-            + "goog.ui.Option.optionDecorator = function(){"
-            + "  return new goog.ui.Option(); };";
+    String js = Joiner.on('\n').join(
+        "var goog = {};",
+        "/** @constructor */",
+        "goog.ui.Option = function() {};",
+        "goog.ui.Option.optionDecorator = function() {",
+        "  return new goog.ui.Option();",
+        "};");
     testSame(js);
   }
 
@@ -190,9 +229,13 @@ public class CheckRequiresForConstructorsTest extends CompilerTestCase {
   public void testNewNodesWithMoreThanOneFile() {
     // Bar is created, and goog.require()ed, but in different files.
     String[] js = new String[] {
-        "var goog = {};" +
-        "/** @constructor */ function Bar() {}" +
-        "goog.require('Bar');",
+        Joiner.on('\n').join(
+            "var goog = {};",
+            "/** @constructor */",
+            "function Bar() {}",
+            "/** @suppress {extraRequire} */",
+            "goog.require('Bar');"),
+
         "var bar = new Bar();"};
     String warning = "'Bar' used but not goog.require'd";
     test(js, js, null, MISSING_REQUIRE_WARNING, warning);
@@ -200,8 +243,11 @@ public class CheckRequiresForConstructorsTest extends CompilerTestCase {
 
   public void testPassWithoutWarningsAndMultipleFiles() {
     String[] js = new String[] {
-        "var goog = {};" +
-        "goog.require('Foo'); var foo = new Foo();",
+        Joiner.on('\n').join(
+            "var goog = {};",
+            "goog.require('Foo');",
+            "var foo = new Foo();"),
+
         "goog.require('Bar'); var bar = new Bar();"};
     testSame(js);
   }
@@ -209,9 +255,13 @@ public class CheckRequiresForConstructorsTest extends CompilerTestCase {
   public void testFailWithWarningsAndMultipleFiles() {
     /* goog.require is in the code base, but not in the correct file */
     String[] js = new String[] {
-        "var goog = {};" +
-        "/** @constructor */ function Bar() {}" +
-        "goog.require('Bar');",
+        Joiner.on('\n').join(
+            "var goog = {};",
+            "/** @constructor */",
+            "function Bar() {}",
+            "/** @suppress {extraRequire} */",
+            "goog.require('Bar');"),
+
         "var bar = new Bar();"};
     String warning = "'Bar' used but not goog.require'd";
     test(js, js, null, MISSING_REQUIRE_WARNING, warning);
@@ -230,7 +280,7 @@ public class CheckRequiresForConstructorsTest extends CompilerTestCase {
     SourceFile input = SourceFile.fromCode("foo.js", js);
     Compiler compiler = new Compiler();
     CompilerOptions opts = new CompilerOptions();
-    opts.setCheckRequires(CheckLevel.WARNING);
+    opts.setWarningLevel(DiagnosticGroups.MISSING_REQUIRE, CheckLevel.WARNING);
     opts.setClosurePass(true);
 
     Result result = compiler.compile(ImmutableList.<SourceFile>of(), ImmutableList.of(input), opts);
@@ -250,66 +300,73 @@ public class CheckRequiresForConstructorsTest extends CompilerTestCase {
   }
 
   public void testNoWarningsForThisConstructor() {
-    String js =
-      "var goog = {};" +
-      "/** @constructor */goog.Foo = function() {};" +
-      "goog.Foo.bar = function() {" +
-      "  return new this.constructor; " +
-      "};";
+    String js = Joiner.on('\n').join(
+      "var goog = {};",
+      "/** @constructor */goog.Foo = function() {};",
+      "goog.Foo.bar = function() {",
+      "  return new this.constructor;",
+      "};");
     testSame(js);
   }
 
   public void testBug2062487() {
     testSame(
-      "var goog = {};" +
-      "/** @constructor */goog.Foo = function() {" +
-      "  /** @constructor */ this.x_ = function() {};" +
-      "  this.y_ = new this.x_();" +
-      "};");
+        Joiner.on('\n').join(
+            "var goog = {};",
+            "/** @constructor */",
+            "goog.Foo = function() {",
+            "  /** @constructor */",
+            "  this.x_ = function() {};",
+            "  this.y_ = new this.x_();",
+            "};"));
   }
 
   public void testIgnoreDuplicateWarningsForSingleClasses(){
     // no use telling them the same thing twice
     String[] js = new String[]{
-      "var goog = {};" +
-      "/** @constructor */goog.Foo = function() {};" +
-      "goog.Foo.bar = function(){" +
-      "  var first = new goog.Forgot();" +
-      "  var second = new goog.Forgot();" +
-      "};"};
+        Joiner.on('\n').join(
+            "var goog = {};",
+            "/** @constructor */",
+            "goog.Foo = function() {};",
+            "goog.Foo.bar = function(){",
+            "  var first = new goog.Forgot();",
+            "  var second = new goog.Forgot();",
+            "};")
+    };
     String warning = "'goog.Forgot' used but not goog.require'd";
     test(js, js, null, MISSING_REQUIRE_WARNING, warning);
   }
 
   public void testVarConstructorName() {
-    String js = "/** @type {function(new:Date)} */var bar = Date;" +
-        "new bar();";
+    String js = "/** @type {function(new:Date)} */var bar = Date; new bar();";
     testSame(js);
   }
 
   public void testVarConstructorFunction() {
-    String js = "/** @type {function(new:Date)} */var bar = function() {};" +
-        "new bar();";
+    String js = "/** @type {function(new:Date)} */var bar = function() {}; new bar();";
     testSame(js);
   }
 
   public void testAssignConstructorName() {
-    String js = "var foo = {};" +
-        "/** @type {function(new:Date)} */foo.bar = Date;" +
-        "new foo.bar();";
+    String js = Joiner.on('\n').join(
+        "var foo = {};",
+        "/** @type {function(new:Date)} */",
+        "foo.bar = Date;",
+        "new foo.bar();");
     testSame(js);
   }
 
   public void testAssignConstructorFunction() {
-    String js = "var foo = {};" +
-        "/** @type {function(new:Date)} */foo.bar = function() {};" +
-        "new foo.bar();";
+    String js = Joiner.on('\n').join(
+        "var foo = {};",
+        "/** @type {function(new:Date)} */",
+        "foo.bar = function() {};",
+        "new foo.bar();");
     testSame(js);
   }
 
   public void testConstructorFunctionReference() {
-    String js = "/** @type {function(new:Date)} */function bar() {}" +
-        "new bar();";
+    String js = "/** @type {function(new:Date)} */function bar() {}; new bar();";
     testSame(js);
   }
 

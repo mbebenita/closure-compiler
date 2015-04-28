@@ -19,6 +19,7 @@ package com.google.javascript.jscomp.newtypes;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
+import com.google.javascript.rhino.Node;
 
 import java.util.List;
 import java.util.Map;
@@ -31,7 +32,7 @@ import java.util.TreeSet;
  * @author blickly@google.com (Ben Lickly)
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
-public class ObjectType implements TypeWithProperties {
+public final class ObjectType implements TypeWithProperties {
   // TODO(dimvar): currently, we can't distinguish between an obj at the top of
   // the proto chain (nominalType = null) and an obj for which we can't figure
   // out its class
@@ -175,7 +176,7 @@ public class ObjectType implements TypeWithProperties {
       // It's wrong to warn about a possibly absent property on loose objects.
       newProps = newProps.with(pname, prop.withRequired());
     }
-    // No need to call makeObjectType because we know new object is inhabitable
+    // No need to call makeObjectType; we know new object is not inhabitable.
     return new ObjectType(
         nominalType, newProps, fn, true, this.objectKind);
   }
@@ -224,7 +225,7 @@ public class ObjectType implements TypeWithProperties {
       } else {
         newProps = newProps.with(pname,
             isConstant ?
-            Property.makeConstant(type, declType) :
+            Property.makeConstant(null, type, declType) :
             Property.make(type, isDeclared ? declType : null));
       }
     } else { // This has a nested object
@@ -241,7 +242,7 @@ public class ObjectType implements TypeWithProperties {
           objProp.getType().withProperty(innerProps, type);
       JSType declared = objProp.getDeclaredType();
       newProps = newProps.with(objName, objProp.isOptional() ?
-          Property.makeOptional(inferred, declared) :
+          Property.makeOptional(null, inferred, declared) :
           Property.make(inferred, declared));
     }
     return ObjectType.makeObjectType(
@@ -611,9 +612,9 @@ public class ObjectType implements TypeWithProperties {
 
   static ImmutableSet<ObjectType> joinSets(
       ImmutableSet<ObjectType> objs1, ImmutableSet<ObjectType> objs2) {
-    if (objs1 == null) {
+    if (objs1.isEmpty()) {
       return objs2;
-    } else if (objs2 == null) {
+    } else if (objs2.isEmpty()) {
       return objs1;
     }
     ObjectType[] objs1Arr = objs1.toArray(new ObjectType[0]);
@@ -661,13 +662,10 @@ public class ObjectType implements TypeWithProperties {
   // TODO(dimvar): handle greatest lower bound of interface types.
   // If we do that, we need to normalize the output, otherwise it could contain
   // two object types that are in a subtype relation, eg, see
-  // NewTypeInferenceTest#testDifficultObjectSpecialization.
+  // NewTypeInferenceES5OrLowerTest#testDifficultObjectSpecialization.
   static ImmutableSet<ObjectType> meetSetsHelper(
       boolean specializeObjs1,
       Set<ObjectType> objs1, Set<ObjectType> objs2) {
-    if (objs1 == null || objs2 == null) {
-      return null;
-    }
     ImmutableSet.Builder<ObjectType> newObjs = ImmutableSet.builder();
     for (ObjectType obj2 : objs2) {
       for (ObjectType obj1 : objs1) {
@@ -702,8 +700,15 @@ public class ObjectType implements TypeWithProperties {
     return fn;
   }
 
-  NominalType getNominalType() {
+  public NominalType getNominalType() {
     return nominalType;
+  }
+
+  public ImmutableSet<String> getAllOwnProps() {
+    // Used by the type conversion pass.
+    // The implementation works only for object literals.
+    Preconditions.checkState(this.nominalType == null);
+    return ImmutableSet.copyOf(props.keySet());
   }
 
   @Override
@@ -726,6 +731,11 @@ public class ObjectType implements TypeWithProperties {
       return p.isDeclared() ? p.getDeclaredType() : null;
     }
     return p.getType().getDeclaredProp(qname.getAllButLeftmost());
+  }
+
+  public Node getPropDefsite(QualifiedName qname) {
+    Preconditions.checkArgument(qname.isIdentifier());
+    return getLeftmostProp(qname).getDefsite();
   }
 
   private Property getLeftmostProp(QualifiedName qname) {
@@ -800,16 +810,16 @@ public class ObjectType implements TypeWithProperties {
    * {@code typeMultimap} to add any new template varaible type bindings.
    * @return Whether unification succeeded
    */
-  boolean unifyWith(ObjectType other, List<String> typeParameters,
+  boolean unifyWithSubtype(ObjectType other, List<String> typeParameters,
       Multimap<String, JSType> typeMultimap) {
     if (fn != null) {
       if (other.fn == null ||
-          !fn.unifyWith(other.fn, typeParameters, typeMultimap)) {
+          !fn.unifyWithSubtype(other.fn, typeParameters, typeMultimap)) {
         return false;
       }
     }
     if (nominalType != null && other.nominalType != null) {
-      return nominalType.unifyWith(
+      return nominalType.unifyWithSubtype(
           other.nominalType, typeParameters, typeMultimap);
     }
     if (nominalType != null || other.nominalType != null) {
@@ -819,7 +829,7 @@ public class ObjectType implements TypeWithProperties {
       Property thisProp = props.get(propName);
       Property otherProp = other.props.get(propName);
       if (otherProp == null ||
-          !thisProp.unifyWith(otherProp, typeParameters, typeMultimap)) {
+          !thisProp.unifyWithSubtype(otherProp, typeParameters, typeMultimap)) {
         return false;
       }
     }
@@ -851,7 +861,7 @@ public class ObjectType implements TypeWithProperties {
     return appendTo(new StringBuilder()).toString();
   }
 
-  public StringBuilder appendTo(StringBuilder builder) {
+  StringBuilder appendTo(StringBuilder builder) {
     if (props.isEmpty()
         || (props.size() == 1 && props.containsKey("prototype"))) {
       if (fn != null) {

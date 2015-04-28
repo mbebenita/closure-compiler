@@ -23,7 +23,7 @@ import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
  * to inline type declarations, by running both syntaxes through the parser
  * and verifying the resulting AST is the same.
  */
-public class Es6InlineTypesTest extends CompilerTestCase {
+public final class Es6InlineTypesTest extends CompilerTestCase {
 
   @Override
   public void setUp() {
@@ -86,7 +86,9 @@ public class Es6InlineTypesTest extends CompilerTestCase {
     test("/** @type {?} */ var n;", "var n: any;");
   }
 
+  // TypeScript doesn't have a representation for the Undefined type,
+  // so our transpilation is lossy here.
   public void testUndefinedType() throws Exception {
-    test("/** @type {undefined} */ var n;", "var n: undefined;");
+    test("/** @type {undefined} */ var n;", "var n;");
   }
 }

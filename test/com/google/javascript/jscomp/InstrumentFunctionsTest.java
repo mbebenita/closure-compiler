@@ -26,7 +26,7 @@ import java.util.List;
  * Tests for {@link InstrumentFunctions}
  *
  */
-public class InstrumentFunctionsTest extends CompilerTestCase {
+public final class InstrumentFunctionsTest extends CompilerTestCase {
   private String instrumentationPb;
 
   public InstrumentFunctionsTest() {
@@ -234,12 +234,12 @@ public class InstrumentFunctionsTest extends CompilerTestCase {
 
   public void testProtobuffParseFail() {
     this.instrumentationPb = "not an ascii pb\n";
-    test("function a(){b}", "", RhinoErrorReporter.PARSE_ERROR);
+    testError("function a(){b}", RhinoErrorReporter.PARSE_ERROR);
   }
 
   public void testInitJsParseFail() {
     this.instrumentationPb = "init: \"= assignWithNoLhs();\"";
-    test("function a(){b}", "", RhinoErrorReporter.PARSE_ERROR);
+    testError("function a(){b}", RhinoErrorReporter.PARSE_ERROR);
   }
 
   private class NameAndInstrumentFunctions implements CompilerPass {

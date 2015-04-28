@@ -19,12 +19,11 @@ package com.google.javascript.jscomp;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.javascript.jscomp.VarCheck.VAR_MULTIPLY_DECLARED_ERROR;
 
-import com.google.common.collect.Lists;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.Node;
 
-public class VarCheckTest extends CompilerTestCase {
+public final class VarCheckTest extends CompilerTestCase {
   private static final String EXTERNS = "var window; function alert() {}";
 
   private CheckLevel strictModuleDepErrorLevel;
@@ -93,12 +92,12 @@ public class VarCheckTest extends CompilerTestCase {
   }
 
   public void testReferencedVarNotDefined() {
-    test("x = 0;", null, VarCheck.UNDEFINED_VAR_ERROR);
+    testError("x = 0;", VarCheck.UNDEFINED_VAR_ERROR);
   }
 
   public void testReferencedLetNotDefined() {
     setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
-    test("{ let x = 1; } var y = x;", null, VarCheck.UNDEFINED_VAR_ERROR);
+    testError("{ let x = 1; } var y = x;", VarCheck.UNDEFINED_VAR_ERROR);
   }
 
   public void testReferencedVarDefined1() {
@@ -114,8 +113,7 @@ public class VarCheckTest extends CompilerTestCase {
   }
 
   public void testMultiplyDeclaredVars1() {
-    test("var x = 1; var x = 2;", null,
-        VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
+    testError("var x = 1; var x = 2;", VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
   }
 
   public void testMultiplyDeclaredVars2() {
@@ -125,8 +123,7 @@ public class VarCheckTest extends CompilerTestCase {
   }
 
   public void testMultiplyDeclaredVars3() {
-    test("try { var x = 1; x *=2; } catch (x) {}", null,
-         VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
+    testError("try { var x = 1; x *=2; } catch (x) {}", VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
   }
 
   public void testMultiplyDeclaredVars4() {
@@ -160,7 +157,7 @@ public class VarCheckTest extends CompilerTestCase {
 
     externValidationErrorLevel = CheckLevel.ERROR;
     test(
-        "asdf.foo;", "var asdf;", "",
+        "asdf.foo;", "var asdf;", (String) null,
          VarCheck.UNDEFINED_EXTERN_VAR_ERROR, null);
 
     externValidationErrorLevel = CheckLevel.OFF;
@@ -168,7 +165,7 @@ public class VarCheckTest extends CompilerTestCase {
   }
 
   public void testVarInWithBlock() {
-    test("var a = {b:5}; with (a){b;}", null, VarCheck.UNDEFINED_VAR_ERROR);
+    testError("var a = {b:5}; with (a){b;}", VarCheck.UNDEFINED_VAR_ERROR);
   }
 
   public void testValidFunctionExpr() {
@@ -280,8 +277,13 @@ public class VarCheckTest extends CompilerTestCase {
     if (m2DependsOnm1) {
       m2.addDependency(m1);
     }
-    test(new JSModule[] { m1, m2 },
-         new String[] { code1, code2 }, error, warning);
+    if (error == null) {
+      test(new JSModule[] { m1, m2 },
+           new String[] { code1, code2 }, null, warning);
+    } else {
+      test(new JSModule[] { m1, m2 },
+           null, error, warning);
+    }
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -343,7 +345,7 @@ public class VarCheckTest extends CompilerTestCase {
 
   public void testRedeclaration1() {
      String js = "var a; var a;";
-     test(js, null, VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
+     testError(js, VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
   }
 
   public void testRedeclaration2() {
@@ -357,26 +359,23 @@ public class VarCheckTest extends CompilerTestCase {
   }
 
   public void testDuplicateVar() {
-    test("/** @define {boolean} */ var DEF = false; var DEF = true;",
-         null, VAR_MULTIPLY_DECLARED_ERROR);
+    testError("/** @define {boolean} */ var DEF = false; var DEF = true;",
+        VAR_MULTIPLY_DECLARED_ERROR);
   }
 
   public void testFunctionScopeArguments() {
     // A var declaration doesn't mask arguments
     testSame("function f() {var arguments}");
 
-    test("var f = function arguments() {}",
-        null, VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
-    test("var f = function (arguments) {}",
-        null, VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
-    test("function f() {try {} catch(arguments) {}}",
-        null, VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
+    testError("var f = function arguments() {}", VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
+    testError("var f = function (arguments) {}", VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
+    testError("function f() {try {} catch(arguments) {}}", VarCheck.VAR_ARGUMENTS_SHADOWED_ERROR);
   }
 
   public void testNoUndeclaredVarWhenUsingClosurePass() {
     enableClosurePass();
     // We don't want to get goog as an undeclared var here.
-    test("goog.require('namespace.Class1');\n", null,
+    testError("goog.require('namespace.Class1');\n",
         ProcessClosurePrimitives.MISSING_PROVIDE_ERROR);
   }
 
@@ -389,17 +388,18 @@ public class VarCheckTest extends CompilerTestCase {
 
     @Override
     public void process(Node externs, Node root) {
-      NodeTraversal.traverseRoots(compiler, Lists.newArrayList(externs, root),
+      NodeTraversal.traverseRoots(compiler,
           new AbstractPostOrderCallback() {
-        @Override
-        public void visit(NodeTraversal t, Node n, Node parent) {
-          if (n.isName() && !parent.isFunction()
-              && !parent.isLabel()) {
-            assertTrue("Variable " + n.getString() + " should have be declared",
-                t.getScope().isDeclared(n.getString(), true));
-          }
-        }
-      });
+            @Override
+            public void visit(NodeTraversal t, Node n, Node parent) {
+              if (n.isName() && !parent.isFunction()
+                  && !parent.isLabel()) {
+                assertTrue("Variable " + n.getString() + " should have be declared",
+                    t.getScope().isDeclared(n.getString(), true));
+              }
+            }
+          },
+          externs, root);
     }
   }
 

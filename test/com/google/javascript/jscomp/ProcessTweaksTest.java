@@ -16,18 +16,18 @@
 
 package com.google.javascript.jscomp;
 
-import com.google.common.collect.Maps;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * @author agrieve@google.com (Andrew Grieve)
  */
-public class ProcessTweaksTest extends CompilerTestCase {
+public final class ProcessTweaksTest extends CompilerTestCase {
 
   Map<String, Node> defaultValueOverrides;
   boolean stripTweaks;
@@ -39,7 +39,7 @@ public class ProcessTweaksTest extends CompilerTestCase {
   @Override
   public void setUp() throws Exception {
     super.setUp();
-    defaultValueOverrides = Maps.newHashMap();
+    defaultValueOverrides = new HashMap<>();
     stripTweaks = false;
   }
 
@@ -100,23 +100,21 @@ public class ProcessTweaksTest extends CompilerTestCase {
   }
 
   public void testNonLiteralId1() {
-    test("goog.tweak.registerBoolean(3, 'Description')", null,
-         ProcessTweaks.NON_LITERAL_TWEAK_ID_ERROR);
+    testError("goog.tweak.registerBoolean(3, 'Description')",
+        ProcessTweaks.NON_LITERAL_TWEAK_ID_ERROR);
   }
 
   public void testNonLiteralId2() {
-    test("goog.tweak.getBoolean('a' + 'b')", null,
-         ProcessTweaks.NON_LITERAL_TWEAK_ID_ERROR);
+    testError("goog.tweak.getBoolean('a' + 'b')", ProcessTweaks.NON_LITERAL_TWEAK_ID_ERROR);
   }
 
   public void testNonLiteralId3() {
-    test("var CONST = 'foo'; goog.tweak.overrideDefaultValue(CONST, 3)", null,
+    testError("var CONST = 'foo'; goog.tweak.overrideDefaultValue(CONST, 3)",
         ProcessTweaks.NON_LITERAL_TWEAK_ID_ERROR);
   }
 
   public void testInvalidId() {
-    test("goog.tweak.registerBoolean('Some ID', 'a')", null,
-        ProcessTweaks.INVALID_TWEAK_ID_ERROR);
+    testError("goog.tweak.registerBoolean('Some ID', 'a')", ProcessTweaks.INVALID_TWEAK_ID_ERROR);
   }
 
   public void testInvalidDefaultValue1() {
@@ -151,20 +149,20 @@ public class ProcessTweaksTest extends CompilerTestCase {
   }
 
   public void testDuplicateTweak() {
-    test("goog.tweak.registerBoolean('TweakA', 'desc');" +
-        "goog.tweak.registerBoolean('TweakA', 'desc')", null,
+    testError("goog.tweak.registerBoolean('TweakA', 'desc');" +
+        "goog.tweak.registerBoolean('TweakA', 'desc')",
         ProcessTweaks.TWEAK_MULTIPLY_REGISTERED_ERROR);
   }
 
   public void testOverrideAfterRegister() {
-    test("goog.tweak.registerBoolean('TweakA', 'desc');" +
+    testError("goog.tweak.registerBoolean('TweakA', 'desc');" +
         "goog.tweak.overrideDefaultValue('TweakA', 'val')",
-         null, ProcessTweaks.TWEAK_OVERRIDE_AFTER_REGISTERED_ERROR);
+        ProcessTweaks.TWEAK_OVERRIDE_AFTER_REGISTERED_ERROR);
   }
 
   public void testRegisterInNonGlobalScope() {
-    test("function foo() {goog.tweak.registerBoolean('TweakA', 'desc');};",
-        null, ProcessTweaks.NON_GLOBAL_TWEAK_INIT_ERROR);
+    testError("function foo() {goog.tweak.registerBoolean('TweakA', 'desc');};",
+        ProcessTweaks.NON_GLOBAL_TWEAK_INIT_ERROR);
   }
 
   public void testWrongGetter1() {

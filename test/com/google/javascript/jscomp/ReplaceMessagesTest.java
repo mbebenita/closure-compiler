@@ -19,16 +19,16 @@ package com.google.javascript.jscomp;
 import static com.google.javascript.jscomp.JsMessage.Style.RELAX;
 import static com.google.javascript.jscomp.JsMessageVisitor.MESSAGE_TREE_MALFORMED;
 
-import com.google.common.collect.Maps;
 import com.google.javascript.jscomp.JsMessage.Style;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
  * Test which checks that replacer works correctly.
  *
  */
-public class ReplaceMessagesTest extends CompilerTestCase {
+public final class ReplaceMessagesTest extends CompilerTestCase {
 
   private Map<String, JsMessage> messages;
   private Style style;
@@ -48,7 +48,7 @@ public class ReplaceMessagesTest extends CompilerTestCase {
 
   @Override
   protected void setUp()  {
-    messages = Maps.newHashMap();
+    messages = new HashMap<>();
     strictReplacement = false;
     style = RELAX;
     compareJsDoc = false;
@@ -194,7 +194,7 @@ public class ReplaceMessagesTest extends CompilerTestCase {
     style = Style.LEGACY;
 
     strictReplacement = true;
-    test("var MSG_E = 'Hello';", "var MSG_E = 'Hello';",
+    testError("var MSG_E = 'Hello';",
          ReplaceMessages.BUNDLE_DOES_NOT_HAVE_THE_MESSAGE);
   }
 
@@ -208,7 +208,7 @@ public class ReplaceMessagesTest extends CompilerTestCase {
         .build());
 
     strictReplacement = true;
-    test("var MSG_E = 'Hello';", "var MSG_E = 'Hello';",
+    testError("var MSG_E = 'Hello';",
         ReplaceMessages.BUNDLE_DOES_NOT_HAVE_THE_MESSAGE);
 
   }
@@ -227,8 +227,7 @@ public class ReplaceMessagesTest extends CompilerTestCase {
   }
 
   public void testPlaceholderNameInLowerUnderscoreCase()  {
-    test(
-        "var MSG_J = goog.getMsg('${$amt_earned}', {amt_earned: x});",
+    testError(
         "var MSG_J = goog.getMsg('${$amt_earned}', {amt_earned: x});",
         MESSAGE_TREE_MALFORMED);
   }
@@ -238,8 +237,7 @@ public class ReplaceMessagesTest extends CompilerTestCase {
         .appendPlaceholderReference("amount")
         .build());
 
-    test(
-        "var MSG_K = goog.getMsg('Hi {$jane}', {jane: x});",
+    testError(
         "var MSG_K = goog.getMsg('Hi {$jane}', {jane: x});",
          MESSAGE_TREE_MALFORMED);
   }
@@ -319,8 +317,7 @@ public class ReplaceMessagesTest extends CompilerTestCase {
         .appendPlaceholderReference("chimp")
         .build());
 
-    test("var MSG_B = function(chump) {return chump + 'x'};",
-         "var MSG_B = function(chump) {return chump + 'x'};",
+    testError("var MSG_B = function(chump) {return chump + 'x'};",
          JsMessageVisitor.MESSAGE_TREE_MALFORMED);
   }
 
@@ -330,34 +327,33 @@ public class ReplaceMessagesTest extends CompilerTestCase {
         .appendStringPart("!")
         .build());
 
-    test("var MSG_A = goog.getMsg('{$a}');",
-         "var MSG_A = goog.getMsg('{$a}');",
+    testError("var MSG_A = goog.getMsg('{$a}');",
          MESSAGE_TREE_MALFORMED);
   }
 
   public void testBadFallbackSyntax1() {
-    test("/** @desc d */\n" +
+    testError("/** @desc d */\n" +
          "var MSG_A = goog.getMsg('asdf');" +
-         "var x = goog.getMsgWithFallback(MSG_A);", null,
+         "var x = goog.getMsgWithFallback(MSG_A);",
          JsMessageVisitor.BAD_FALLBACK_SYNTAX);
   }
 
   public void testBadFallbackSyntax2() {
-    test("var x = goog.getMsgWithFallback('abc', 'bcd');", null,
-         JsMessageVisitor.BAD_FALLBACK_SYNTAX);
+    testError("var x = goog.getMsgWithFallback('abc', 'bcd');",
+        JsMessageVisitor.BAD_FALLBACK_SYNTAX);
   }
 
   public void testBadFallbackSyntax3() {
-    test("/** @desc d */\n" +
+    testError("/** @desc d */\n" +
          "var MSG_A = goog.getMsg('asdf');" +
-         "var x = goog.getMsgWithFallback(MSG_A, y);", null,
+         "var x = goog.getMsgWithFallback(MSG_A, y);",
          JsMessageVisitor.FALLBACK_ARG_ERROR);
   }
 
   public void testBadFallbackSyntax4() {
-    test("/** @desc d */\n" +
+    testError("/** @desc d */\n" +
          "var MSG_A = goog.getMsg('asdf');" +
-         "var x = goog.getMsgWithFallback(y, MSG_A);", null,
+         "var x = goog.getMsgWithFallback(y, MSG_A);",
          JsMessageVisitor.FALLBACK_ARG_ERROR);
   }
 

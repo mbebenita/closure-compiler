@@ -27,7 +27,7 @@ import junit.framework.TestCase;
  * @author nicholas.j.santos@gmail.com (Nick Santos)
  */
 
-public class ES6ModuleLoaderTest extends TestCase {
+public final class ES6ModuleLoaderTest extends TestCase {
   private ES6ModuleLoader loader;
   private Compiler compiler;
 
@@ -40,12 +40,11 @@ public class ES6ModuleLoaderTest extends TestCase {
         ImmutableList.of(in1, in2),
         new CompilerOptions());
 
-    loader = ES6ModuleLoader.createNaiveLoader(compiler, ".");
+    loader = new ES6ModuleLoader(compiler, ".");
   }
 
   public void testWindowsAddresses() {
     CompilerInput inputA = compiler.getInput(new InputId("js\\a.js"));
-    CompilerInput inputB = compiler.getInput(new InputId("js\\b.js"));
     assertEquals("js/a.js", loader.getLoadAddress(inputA));
     assertEquals("js/b.js", loader.locate("./b.js", inputA));
 

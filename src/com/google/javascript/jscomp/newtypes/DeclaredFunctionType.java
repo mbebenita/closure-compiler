@@ -35,7 +35,7 @@ import java.util.List;
  * @author blickly@google.com (Ben Lickly)
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
-public class DeclaredFunctionType {
+public final class DeclaredFunctionType {
   private final List<JSType> requiredFormals;
   private final List<JSType> optionalFormals;
   private final JSType restFormals;
@@ -44,7 +44,7 @@ public class DeclaredFunctionType {
   private final NominalType nominalType;
   // Non-null iff this is a prototype method
   private final NominalType receiverType;
-  // Non-null iff this function has an @template annotation
+  // Non-empty iff this function has an @template annotation
   private final ImmutableList<String> typeParameters;
 
   private DeclaredFunctionType(
@@ -93,6 +93,9 @@ public class DeclaredFunctionType {
     }
     if (optionalFormals == null) {
       optionalFormals = new ArrayList<>();
+    }
+    if (typeParameters == null) {
+      typeParameters = ImmutableList.of();
     }
     return new DeclaredFunctionType(
         requiredFormals, optionalFormals, restFormals, retType,
@@ -145,15 +148,15 @@ public class DeclaredFunctionType {
   }
 
   public boolean isGeneric() {
-    return typeParameters != null;
+    return !typeParameters.isEmpty();
   }
 
   public ImmutableList<String> getTypeParameters() {
     return typeParameters;
   }
 
-  public boolean isTypeVariableInScope(String tvar) {
-    if (typeParameters != null && typeParameters.contains(tvar)) {
+  public boolean isTypeVariableDefinedLocally(String tvar) {
+    if (typeParameters.contains(tvar)) {
       return true;
     }
     // We don't look at this.nominalType, b/c if this function is a generic

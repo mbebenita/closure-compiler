@@ -40,7 +40,7 @@ import java.nio.file.Files;
  */
 @RunWith(JUnit4.class)
 
-public class ES6ModuleLoaderFileSystemTest {
+public final class ES6ModuleLoaderFileSystemTest {
   private ES6ModuleLoader loader;
   private Compiler compiler;
   private String rootPath;
@@ -81,7 +81,7 @@ public class ES6ModuleLoaderFileSystemTest {
         new CompilerOptions());
 
     rootPath = tempFolder.getRoot().getPath().replace(File.separatorChar, '/') + "/";
-    loader = ES6ModuleLoader.createNaiveLoader(compiler, rootPath);
+    loader = new ES6ModuleLoader(compiler, rootPath);
   }
 
   private CompilerInput getInput(String s) {

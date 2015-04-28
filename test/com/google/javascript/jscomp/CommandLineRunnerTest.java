@@ -26,17 +26,18 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.javascript.jscomp.AbstractCommandLineRunner.FlagUsageException;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.SourceMap.LocationMapping;
 import com.google.javascript.rhino.Node;
+
 import junit.framework.TestCase;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -45,7 +46,7 @@ import java.util.Map;
  *
  * @author nicksantos@google.com (Nick Santos)
  */
-public class CommandLineRunnerTest extends TestCase {
+public final class CommandLineRunnerTest extends TestCase {
 
   private Compiler lastCompiler = null;
   private CommandLineRunner lastCommandLineRunner = null;
@@ -69,7 +70,7 @@ public class CommandLineRunnerTest extends TestCase {
     STAR
   }
 
-  private List<String> args = Lists.newArrayList();
+  private List<String> args = new ArrayList<>();
 
   /** Externs for the test */
   private static final List<SourceFile> DEFAULT_EXTERNS = ImmutableList.of(
@@ -115,7 +116,7 @@ public class CommandLineRunnerTest extends TestCase {
   public void setUp() throws Exception {
     super.setUp();
     externs = DEFAULT_EXTERNS;
-    filenames = Maps.newHashMap();
+    filenames = new HashMap<>();
     lastCompiler = null;
     lastArg = null;
     outReader = new ByteArrayOutputStream();
@@ -123,7 +124,7 @@ public class CommandLineRunnerTest extends TestCase {
     useStringComparison = false;
     useModules = ModulePattern.NONE;
     args.clear();
-    exitCodes = Lists.newArrayList();
+    exitCodes = new ArrayList<>();
   }
 
   @Override
@@ -246,7 +247,6 @@ public class CommandLineRunnerTest extends TestCase {
 
   public void testTypedAdvanced() {
     args.add("--compilation_level=ADVANCED_OPTIMIZATIONS");
-    args.add("--use_types_for_optimization");
     test(
         "/** @constructor */\n" +
         "function Foo() {}\n" +
@@ -257,6 +257,26 @@ public class CommandLineRunnerTest extends TestCase {
         "new Foo().handle1(1, 2);\n" +
         "new Bar().handle1(1, 2);\n",
         "alert(2)");
+  }
+
+  public void testTypedDisabledAdvanced() {
+    args.add("--compilation_level=ADVANCED_OPTIMIZATIONS");
+    args.add("--use_types_for_optimization=false");
+    test(
+        "/** @constructor */\n"
+        + "function Foo() {}\n"
+        +"Foo.prototype.handle1 = function(x, y) { alert(y); };\n"
+        + "/** @constructor */\n"
+        + "function Bar() {}\n"
+        + "Bar.prototype.handle1 = function(x, y) {};\n"
+        + "new Foo().handle1(1, 2);\n"
+        + "new Bar().handle1(1, 2);\n",
+        "function a() {}\n"
+        + "a.prototype.a = function(d, c) { alert(c); };\n"
+        + "function b() {}\n"
+        + "b.prototype.a = function() {};\n"
+        + "(new a).a(1, 2);\n"
+        + "(new b).a(1, 2);");
   }
 
   public void testTypeCheckingOnWithVerbose() {
@@ -974,7 +994,7 @@ public class CommandLineRunnerTest extends TestCase {
                 .toString());
   }
 
-  public void testSourceMapLocationsTranslations3() throws IOException {
+  public void testSourceMapLocationsTranslations3() {
     // Prevents this from trying to load externs.zip
     args.add("--use_only_custom_externs=true");
 
@@ -987,6 +1007,22 @@ public class CommandLineRunnerTest extends TestCase {
     assertThat(runner.shouldRunCompiler()).isFalse();
     assertThat(new String(errReader.toByteArray(), UTF_8))
         .contains("Bad value for --source_map_location_mapping");
+  }
+
+  public void testSourceMapInputs() throws Exception {
+    args.add("--js_output_file");
+    args.add("/path/to/out.js");
+    args.add("--source_map_input=input1|input1.sourcemap");
+    args.add("--source_map_input=input2|input2.sourcemap");
+    testSame("var x = 3;");
+
+    Map<String, SourceMapInput> inputMaps = lastCompiler.getOptions()
+        .inputSourceMaps;
+    assertThat(inputMaps).hasSize(2);
+    assertThat(inputMaps.get("input1").getOriginalPath())
+        .isEqualTo("input1.sourcemap");
+    assertThat(inputMaps.get("input2").getOriginalPath())
+        .isEqualTo("input2.sourcemap");
   }
 
   public void testModuleWrapperBaseNameExpansion() throws Exception {
@@ -1136,6 +1172,26 @@ public class CommandLineRunnerTest extends TestCase {
     args.add("--warning_level=VERBOSE");
     test("/** @return {number} */ function f() {f()} f();",
         CheckMissingReturn.MISSING_RETURN_STATEMENT);
+  }
+
+  public void testChecksOnlySkipsOptimizations() {
+    args.add("--checks-only");
+    test("var foo = 1 + 1;",
+      "var foo = 1 + 1;");
+  }
+
+  public void testChecksOnlyWithParseError() {
+    args.add("--compilation_level=WHITESPACE_ONLY");
+    args.add("--checks-only");
+    test("val foo = 1;",
+      RhinoErrorReporter.PARSE_ERROR);
+  }
+
+  public void testChecksOnlyWithWarning() {
+    args.add("--checks-only");
+    args.add("--warning_level=VERBOSE");
+    test("/** @deprecated */function foo() {}; foo();",
+      CheckAccessControls.DEPRECATED_NAME);
   }
 
   public void testGenerateExports() {
@@ -1483,18 +1539,18 @@ public class CommandLineRunnerTest extends TestCase {
     Supplier<List<JSModule>> modulesSupplier = null;
 
     if (useModules == ModulePattern.NONE) {
-      List<SourceFile> inputs = Lists.newArrayList();
+      List<SourceFile> inputs = new ArrayList<>();
       for (int i = 0; i < original.length; i++) {
         inputs.add(SourceFile.fromCode(getFilename(i), original[i]));
       }
       inputsSupplier = Suppliers.ofInstance(inputs);
     } else if (useModules == ModulePattern.STAR) {
       modulesSupplier = Suppliers.<List<JSModule>>ofInstance(
-          Lists.newArrayList(
+          ImmutableList.copyOf(
               CompilerTestCase.createModuleStar(original)));
     } else if (useModules == ModulePattern.CHAIN) {
       modulesSupplier = Suppliers.<List<JSModule>>ofInstance(
-          Lists.newArrayList(
+          ImmutableList.copyOf(
               CompilerTestCase.createModuleChain(original)));
     } else {
       throw new IllegalArgumentException("Unknown module type: " + useModules);
@@ -1520,7 +1576,7 @@ public class CommandLineRunnerTest extends TestCase {
     String[] argStrings = args.toArray(new String[] {});
     CommandLineRunner runner = new CommandLineRunner(argStrings);
     Compiler compiler = runner.createCompiler();
-    List<SourceFile> inputs = Lists.newArrayList();
+    List<SourceFile> inputs = new ArrayList<>();
     for (int i = 0; i < original.length; i++) {
       inputs.add(SourceFile.fromCode(getFilename(i), original[i]));
     }

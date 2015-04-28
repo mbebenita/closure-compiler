@@ -16,15 +16,14 @@
 
 package com.google.javascript.jscomp;
 
-import com.google.common.collect.Sets;
-
+import com.google.common.collect.ImmutableSet;
 import java.util.Set;
 
 /**
  * Tests for {@link StripCode}.
  *
  */
-public class StripCodeTest extends CompilerTestCase {
+public final class StripCodeTest extends CompilerTestCase {
 
   private static final String EXTERNS = "";
 
@@ -39,7 +38,7 @@ public class StripCodeTest extends CompilerTestCase {
    * @return A new {@link StripCode} instance
    */
   private static StripCode createLoggerInstance(Compiler compiler) {
-    Set<String> stripTypes = Sets.newHashSet(
+    Set<String> stripTypes = ImmutableSet.of(
         "goog.debug.DebugWindow",
         "goog.debug.FancyWindow",
         "goog.debug.Formatter",
@@ -51,7 +50,7 @@ public class StripCodeTest extends CompilerTestCase {
         "goog.net.BrowserChannel.LogSaver",
         "GA_GoogleDebugger");
 
-    Set<String> stripNames = Sets.newHashSet(
+    Set<String> stripNames = ImmutableSet.of(
         "logger",
         "logger_",
         "debugWindow",
@@ -59,8 +58,8 @@ public class StripCodeTest extends CompilerTestCase {
         "logFormatter_",
         "logBuffer_");
 
-    Set<String> stripNamePrefixes = Sets.newHashSet("trace");
-    Set<String> stripTypePrefixes = Sets.newHashSet("e.f.Trace");
+    Set<String> stripNamePrefixes = ImmutableSet.of("trace");
+    Set<String> stripTypePrefixes = ImmutableSet.of("e.f.Trace");
 
     return new StripCode(compiler, stripTypes, stripNames, stripTypePrefixes,
         stripNamePrefixes);
@@ -278,15 +277,15 @@ public class StripCodeTest extends CompilerTestCase {
   }
 
   public void testClassDefiningCallWithStripType3() {
-    test("goog.formatter=function(){};" +
+    testError("goog.formatter=function(){};" +
          "goog.inherits(goog.formatter,goog.debug.Formatter)",
-         null, StripCode.STRIP_TYPE_INHERIT_ERROR);
+         StripCode.STRIP_TYPE_INHERIT_ERROR);
   }
 
   public void testClassDefiningCallWithStripType4() {
-    test("goog.formatter=function(){};" +
+    testError("goog.formatter=function(){};" +
          "goog.formatter.inherits(goog.debug.Formatter)",
-         null, StripCode.STRIP_TYPE_INHERIT_ERROR);
+         StripCode.STRIP_TYPE_INHERIT_ERROR);
   }
 
   public void testClassDefiningCallWithStripType5() {
@@ -295,9 +294,9 @@ public class StripCodeTest extends CompilerTestCase {
   }
 
   public void testClassDefiningCallWithStripType6() {
-    test("goog.formatter=function(){};" +
+    testError("goog.formatter=function(){};" +
          "goog.formatter.inherits(goog.debug.Formatter.Foo)",
-         null, StripCode.STRIP_TYPE_INHERIT_ERROR);
+         StripCode.STRIP_TYPE_INHERIT_ERROR);
   }
 
   public void testClassDefiningCallWithStripType7() {
@@ -397,18 +396,15 @@ public class StripCodeTest extends CompilerTestCase {
 
   public void testReportErrorOnStripInNestedAssignment() {
     // Strip name
-    test("(foo.logger_ = 7) + 8",
-         "(foo.logger_ = 7) + 8",
+    testError("(foo.logger_ = 7) + 8",
          StripCode.STRIP_ASSIGNMENT_ERROR);
 
     // Strip namespaced type
-    test("(goog.debug.Logger.foo = 7) + 8",
-         "(goog.debug.Logger.foo = 7) + 8",
+    testError("(goog.debug.Logger.foo = 7) + 8",
          StripCode.STRIP_ASSIGNMENT_ERROR);
 
     // Strip non-namespaced type
-    test("(GA_GoogleDebugger.foo = 7) + 8",
-         "(GA_GoogleDebugger.foo = 7) + 8",
+    testError("(GA_GoogleDebugger.foo = 7) + 8",
          StripCode.STRIP_ASSIGNMENT_ERROR);
   }
 

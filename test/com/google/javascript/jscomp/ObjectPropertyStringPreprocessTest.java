@@ -16,11 +16,12 @@
 
 package com.google.javascript.jscomp;
 
+
 /**
  * Tests for {@link ObjectPropertyStringPreprocess}
  *
  */
-public class ObjectPropertyStringPreprocessTest extends CompilerTestCase {
+public final class ObjectPropertyStringPreprocessTest extends CompilerTestCase {
   @Override
   protected CompilerPass getProcessor(final Compiler compiler) {
     return new ObjectPropertyStringPreprocess(compiler);
@@ -53,20 +54,17 @@ public class ObjectPropertyStringPreprocessTest extends CompilerTestCase {
   }
 
   public void testInvalidNumArgumentsError() {
-    testSame(new String[] {"new goog.testing.ObjectPropertyString()"},
+    testError("new goog.testing.ObjectPropertyString()",
         ObjectPropertyStringPreprocess.INVALID_NUM_ARGUMENTS_ERROR);
   }
 
   public void testQualifedNameExpectedError() {
-    testSame(
-        new String[] {
-          "new goog.testing.ObjectPropertyString(foo[a], 'bar')"
-        },
+    testError("new goog.testing.ObjectPropertyString(foo[a], 'bar')",
         ObjectPropertyStringPreprocess.QUALIFIED_NAME_EXPECTED_ERROR);
   }
 
   public void testStringLiteralExpectedError() {
-    testSame(new String[] {"new goog.testing.ObjectPropertyString(foo, bar)"},
+    testError("new goog.testing.ObjectPropertyString(foo, bar)",
         ObjectPropertyStringPreprocess.STRING_LITERAL_EXPECTED_ERROR);
   }
 }

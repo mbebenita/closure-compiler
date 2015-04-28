@@ -119,6 +119,7 @@ abstract class CompilerTypeTestCase extends BaseJSTypeTestCase {
         DiagnosticGroups.MISPLACED_TYPE_ANNOTATION, CheckLevel.WARNING);
     options.setWarningLevel(
         DiagnosticGroups.INVALID_CASTS, CheckLevel.WARNING);
+    options.setWarningLevel(DiagnosticGroups.LINT_CHECKS, CheckLevel.WARNING);
     options.setCodingConvention(getCodingConvention());
     return options;
   }
@@ -129,10 +130,10 @@ abstract class CompilerTypeTestCase extends BaseJSTypeTestCase {
 
   protected void checkReportedWarningsHelper(String[] expected) {
     JSError[] warnings = compiler.getWarnings();
-    for (int i = 0; i < expected.length; i++) {
-      if (expected[i] != null) {
+    for (String element : expected) {
+      if (element != null) {
         assertThat(warnings.length).named("Number of warnings").isGreaterThan(0);
-        assertThat(warnings[0].description).isEqualTo(expected[i]);
+        assertThat(warnings[0].description).isEqualTo(element);
         warnings =
             Arrays.asList(warnings)
                 .subList(1, warnings.length)

@@ -22,7 +22,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
@@ -32,12 +31,13 @@ import com.google.javascript.rhino.jstype.TernaryValue;
 import junit.framework.TestCase;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.Set;
 
 /**
  * Tests for NodeUtil
  */
-public class NodeUtilTest extends TestCase {
+public final class NodeUtilTest extends TestCase {
 
   private static Node parse(String js) {
     Compiler compiler = new Compiler();
@@ -509,7 +509,7 @@ public class NodeUtilTest extends TestCase {
     assertMutableState(false, "a");
     assertMutableState(true, "[b, c [d, [e]]]");
     assertMutableState(true, "({a: x, b: y, c: z})");
-    // Note: RegExp objects are not immutable,  for instance, the exec
+    // Note: RegExp objects are not immutable, for instance, the exec
     // method maintains state for "global" searches.
     assertMutableState(true, "/abc/gi");
     assertMutableState(false, "'a'");
@@ -678,25 +678,25 @@ public class NodeUtilTest extends TestCase {
   }
 
   public void testGetVarsDeclaredInBranch() {
-    assertNodeNames(Sets.newHashSet("foo"),
+    assertNodeNames(ImmutableSet.of("foo"),
         NodeUtil.getVarsDeclaredInBranch(
             parse("var foo;")));
-    assertNodeNames(Sets.newHashSet("foo", "goo"),
+    assertNodeNames(ImmutableSet.of("foo", "goo"),
         NodeUtil.getVarsDeclaredInBranch(
             parse("var foo,goo;")));
-    assertNodeNames(Sets.<String>newHashSet(),
+    assertNodeNames(ImmutableSet.<String>of(),
         NodeUtil.getVarsDeclaredInBranch(
             parse("foo();")));
-    assertNodeNames(Sets.<String>newHashSet(),
+    assertNodeNames(ImmutableSet.<String>of(),
         NodeUtil.getVarsDeclaredInBranch(
             parse("function f(){var foo;}")));
-    assertNodeNames(Sets.newHashSet("goo"),
+    assertNodeNames(ImmutableSet.of("goo"),
         NodeUtil.getVarsDeclaredInBranch(
             parse("var goo;function f(){var foo;}")));
   }
 
   private void assertNodeNames(Set<String> nodeNames, Collection<Node> nodes) {
-    Set<String> actualNames = Sets.newHashSet();
+    Set<String> actualNames = new HashSet<>();
     for (Node node : nodes) {
       actualNames.add(node.getString());
     }

@@ -40,14 +40,28 @@
 package com.google.javascript.rhino;
 
 import com.google.javascript.rhino.jstype.JSTypeNative;
+import com.google.javascript.rhino.jstype.StaticTypedScope;
 
 /**
  * @author blickly@google.com (Ben Lickly)
  * @author dimvar@google.com (Dimitris Vardoulakis)
  */
 public interface TypeIRegistry {
+  // TODO(dimvar): Some methods in this interface are polymorphic because they are used
+  // in compiler passes mixed with the old type system.
+  // Polymorphism avoids the need for casting in many cases (fewer casts in java 8 than in java 7).
+  // After all non-type-checking passes use TypeI, we should make these methods not polymorphic.
 
-  TypeI getNativeType(JSTypeNative typeId);
+  TypeI createTypeFromCommentNode(
+      Node n, String sourceName, StaticTypedScope<? extends TypeI> scope);
 
-  TypeI getType(String typeName);
+  <T extends FunctionTypeI> T getNativeFunctionType(JSTypeNative typeId);
+
+  <T extends ObjectTypeI> T getNativeObjectType(JSTypeNative typeId);
+
+  <T extends TypeI> T getNativeType(JSTypeNative typeId);
+
+  String getReadableTypeName(Node n);
+
+  <T extends TypeI> T getType(String typeName);
 }

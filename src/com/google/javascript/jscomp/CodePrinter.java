@@ -19,10 +19,11 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.debugging.sourcemap.FilePosition;
+import com.google.javascript.jscomp.CodePrinter.Builder.CodeGeneratorFactory;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
-import com.google.javascript.rhino.jstype.JSTypeRegistry;
+import com.google.javascript.rhino.TypeIRegistry;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -554,7 +555,15 @@ public final class CodePrinter {
     private boolean outputTypes = false;
     private SourceMap sourceMap = null;
     private boolean tagAsStrict;
-    private JSTypeRegistry registry;
+    private TypeIRegistry registry;
+    private CodeGeneratorFactory codeGeneratorFactory = new CodeGeneratorFactory() {
+      @Override
+      public CodeGenerator getCodeGenerator(Format outputFormat, CodeConsumer cc) {
+        return outputFormat == Format.TYPED
+            ? new TypedCodeGenerator(cc, options, registry)
+            : new CodeGenerator(cc, options);
+      }
+    };
 
     /**
      * Sets the root node from which to generate the source code.
@@ -576,7 +585,7 @@ public final class CodePrinter {
       return this;
     }
 
-    public Builder setTypeRegistry(JSTypeRegistry registry) {
+    public Builder setTypeRegistry(TypeIRegistry registry) {
       this.registry = registry;
       return this;
     }
@@ -627,6 +636,10 @@ public final class CodePrinter {
       return this;
     }
 
+    public interface CodeGeneratorFactory {
+      CodeGenerator getCodeGenerator(Format outputFormat, CodeConsumer cc);
+    }
+
     /**
      * Generates the source code and returns it.
      */
@@ -636,8 +649,8 @@ public final class CodePrinter {
             "Cannot build without root node being specified");
       }
 
-      return toSource(root, Format.fromOptions(options, outputTypes), options, registry,
-              sourceMap, tagAsStrict);
+      return toSource(root, Format.fromOptions(options, outputTypes), options,
+          sourceMap, tagAsStrict, codeGeneratorFactory);
     }
   }
 
@@ -661,8 +674,8 @@ public final class CodePrinter {
    * Converts a tree to JS code
    */
   private static String toSource(Node root, Format outputFormat,
-      CompilerOptions options, JSTypeRegistry registry,
-      SourceMap sourceMap,  boolean tagAsStrict) {
+      CompilerOptions options, SourceMap sourceMap, boolean tagAsStrict,
+      CodeGeneratorFactory codeGeneratorFactory) {
     Preconditions.checkState(options.sourceMapDetailLevel != null);
 
     boolean createSourceMap = (sourceMap != null);
@@ -678,10 +691,7 @@ public final class CodePrinter {
             options.lineLengthThreshold,
             createSourceMap,
             options.sourceMapDetailLevel);
-    CodeGenerator cg =
-        outputFormat == Format.TYPED
-        ? new TypedCodeGenerator(mcp, options, registry)
-        : new CodeGenerator(mcp, options);
+    CodeGenerator cg = codeGeneratorFactory.getCodeGenerator(outputFormat, mcp);
 
     if (tagAsStrict) {
       cg.tagAsStrict();

@@ -27,9 +27,9 @@ import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfoBuilder;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.StaticSourceFile;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TokenStream;
-import com.google.javascript.rhino.jstype.StaticSourceFile;
 import com.google.javascript.rhino.jstype.TernaryValue;
 
 import java.util.Collection;
@@ -421,7 +421,7 @@ public final class NodeUtil {
    * In two last cases with named function expressions, the second name is
    * returned (the variable or qualified name).
    *
-   * @param n A class node
+   * @param clazz A class node
    * @return the node best representing the class's name
    */
   static Node getClassNameNode(Node clazz) {
@@ -454,7 +454,7 @@ public final class NodeUtil {
     return getNameNode(n);
   }
 
-  static String getFunctionName(Node n) {
+  public static String getFunctionName(Node n) {
     Node nameNode = getFunctionNameNode(n);
     return nameNode == null ? null : nameNode.getQualifiedName();
   }
@@ -1422,7 +1422,17 @@ public final class NodeUtil {
       case Token.SUPER:
       case Token.TRUE:
       case Token.TEMPLATELIT:
+      // Tokens from the type declaration AST
+      case Token.STRING_TYPE:
+      case Token.NUMBER_TYPE:
+      case Token.BOOLEAN_TYPE:
+      case Token.ANY_TYPE:
+      case Token.RECORD_TYPE:
+      case Token.NULLABLE_TYPE:
       case Token.NAMED_TYPE:
+      case Token.UNDEFINED_TYPE:
+      case Token.FUNCTION_TYPE:
+      case Token.REST_PARAMETER_TYPE:
         return 15;
       case Token.CAST:
         return 16;
@@ -1761,10 +1771,10 @@ public final class NodeUtil {
   }
 
   /**
-   * Finds the class member containing the given node.
+   * Finds the class member function containing the given node.
    */
-  static Node getEnclosingClassMember(Node n) {
-    return getEnclosingType(n, Token.MEMBER_DEF);
+  static Node getEnclosingClassMemberFunction(Node n) {
+    return getEnclosingType(n, Token.MEMBER_FUNCTION_DEF);
   }
 
   /**
@@ -1781,6 +1791,13 @@ public final class NodeUtil {
     return getEnclosingType(n, Token.FUNCTION);
   }
 
+  /**
+   * Finds the script containing the given node.
+   */
+  static Node getEnclosingScript(Node n) {
+    return getEnclosingType(n, Token.SCRIPT);
+  }
+
   static boolean isInFunction(Node n) {
     return getEnclosingFunction(n) != null;
   }
@@ -1791,6 +1808,19 @@ public final class NodeUtil {
       curr = curr.getParent();
     }
     return curr;
+  }
+
+  /**
+   * @return The first property in the objlit that matches the key.
+   */
+  @Nullable static Node getFirstPropMatchingKey(Node objlit, String keyName) {
+    Preconditions.checkState(objlit.isObjectLit());
+    for (Node keyNode : objlit.children()) {
+      if (keyNode.isStringKey() && keyNode.getString().equals(keyName)) {
+        return keyNode.getFirstChild();
+      }
+    }
+    return null;
   }
 
   /**
@@ -1852,7 +1882,7 @@ public final class NodeUtil {
    *     destructuring pattern.
    */
   static boolean isDestructuringDeclaration(Node n) {
-    if (n.isVar() || n.isLet() || n.isConst()) {
+    if (isNameDeclaration(n)) {
       for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {
         if (c.isArrayPattern() || c.isObjectPattern()) {
           return true;
@@ -2066,7 +2096,7 @@ public final class NodeUtil {
    * A block scope is created by a non-synthetic block node, a for loop node,
    * or a for-of loop node.
    *
-   * Note: for functions, we use two separate scopes for parameters and
+   * <p>Note: for functions, we use two separate scopes for parameters and
    * declarations in the body. We need to make sure default parameters cannot
    * reference var / function declarations in the body.
    *
@@ -2666,6 +2696,17 @@ public final class NodeUtil {
   }
 
   /**
+   * Creates a property access on the {@code context} tree.
+   */
+  public static Node newPropertyAccess(AbstractCompiler compiler, Node context, String name) {
+    Node propNode = IR.getprop(context, IR.string(name));
+    if (compiler.getCodingConvention().isConstantKey(name)) {
+      propNode.putBooleanProp(Node.IS_CONSTANT_NAME, true);
+    }
+    return propNode;
+  }
+
+  /**
    * Creates a node representing a qualified name.
    *
    * @param name A qualified name (e.g. "foo" or "foo.bar.baz")
@@ -2925,6 +2966,16 @@ public final class NodeUtil {
       return false;
     }
     return isPrototypePropertyDeclaration(assignNode.getParent());
+  }
+
+  static boolean isPrototypeAssignment(Node getProp) {
+    if (!getProp.isGetProp()) {
+      return false;
+    }
+    Node parent = getProp.getParent();
+    return parent.isAssign() && parent.getFirstChild() == getProp
+        && parent.getFirstChild().getLastChild().getString().equals("prototype")
+        && parent.getLastChild().isObjectLit();
   }
 
   /**
@@ -3268,7 +3319,7 @@ public final class NodeUtil {
       return false;
     }
 
-    Scope.Var var = scope.getVar(node.getString());
+    Var var = scope.getVar(node.getString());
     return var != null && (var.isInferredConst() || var.isConst());
   }
 
@@ -3325,26 +3376,6 @@ public final class NodeUtil {
             && NodeUtil.isConstantByConvention(convention, node.getLastChild());
     }
     return false;
-  }
-
-  /**
-   * Get the JSDocInfo for a function.
-   */
-  public static JSDocInfo getFunctionJSDocInfo(Node n) {
-    Preconditions.checkState(n.isFunction());
-    JSDocInfo fnInfo = n.getJSDocInfo();
-    if (fnInfo == null && NodeUtil.isFunctionExpression(n)) {
-      // Look for the info on other nodes.
-      Node parent = n.getParent();
-      if (parent.isAssign()) {
-        // on ASSIGNs
-        fnInfo = parent.getJSDocInfo();
-      } else if (parent.isName()) {
-        // on var NAME = function() { ... };
-        fnInfo = parent.getParent().getJSDocInfo();
-      }
-    }
-    return fnInfo;
   }
 
   static boolean functionHasInlineJsdocs(Node fn) {
@@ -3572,13 +3603,11 @@ public final class NodeUtil {
         return getBestJSDocInfo(parent);
       } else if (parent.isVar() && parent.hasOneChild()) {
         return parent.getJSDocInfo();
-      } else if ((parent.isHook() && parent.getFirstChild() != n) ||
-                 parent.isOr() ||
-                 parent.isAnd() ||
-                 (parent.isComma() && parent.getFirstChild() != n)) {
+      } else if ((parent.isHook() && parent.getFirstChild() != n)
+                 || parent.isOr()
+                 || parent.isAnd()
+                 || (parent.isComma() && parent.getFirstChild() != n)) {
         return getBestJSDocInfo(parent);
-      } else if (parent.isCast()) {
-        return parent.getJSDocInfo();
       }
     }
     return info;
@@ -3900,7 +3929,7 @@ public final class NodeUtil {
   static JSDocInfo createConstantJsDoc() {
     JSDocInfoBuilder builder = new JSDocInfoBuilder(false);
     builder.recordConstancy();
-    return builder.build(null);
+    return builder.build();
   }
 
   static int toInt32(double d) {

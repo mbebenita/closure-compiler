@@ -25,7 +25,7 @@ import com.google.javascript.jscomp.JsMessage.Style;
  *
  * @author tbreisacher@google.com (Tyler Breisacher)
  */
-public class ReplaceMessagesForChromeTest extends CompilerTestCase {
+public final class ReplaceMessagesForChromeTest extends CompilerTestCase {
 
   private Style style = RELAX;
 
@@ -80,9 +80,9 @@ public class ReplaceMessagesForChromeTest extends CompilerTestCase {
   }
 
   public void testReplacePlaceholderMissingValue() {
-    test("/** @desc A message with two placeholders, but one is missing. */\n" +
+    testError("/** @desc A message with two placeholders, but one is missing. */\n" +
          "var MSG_F = goog.getMsg('{$greeting}, {$name}!', {name: 'Tyler'});",
-         null, JsMessageVisitor.MESSAGE_TREE_MALFORMED);
+         JsMessageVisitor.MESSAGE_TREE_MALFORMED);
   }
 
   public void testReplaceTwoPlaceholdersNonAlphaOrder() {

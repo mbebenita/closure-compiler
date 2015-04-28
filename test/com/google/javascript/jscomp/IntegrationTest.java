@@ -22,9 +22,7 @@ import static com.google.javascript.jscomp.TypeValidator.TYPE_MISMATCH_WARNING;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
+import com.google.common.collect.ImmutableSet;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
@@ -35,7 +33,7 @@ import com.google.javascript.rhino.Token;
  * @author nicksantos@google.com (Nick Santos)
  */
 
-public class IntegrationTest extends IntegrationTestCase {
+public final class IntegrationTest extends IntegrationTestCase {
 
   @Override public void setUp() {
     super.setUp();
@@ -323,13 +321,6 @@ public class IntegrationTest extends IntegrationTestCase {
     });
   }
 
-  public void testCheckRequiresOn() {
-    CompilerOptions options = createCompilerOptions();
-    options.setCheckRequires(CheckLevel.ERROR);
-    test(options, new String[] {"/** @constructor */ function Foo() {}", "new Foo();"},
-        CheckRequiresForConstructors.MISSING_REQUIRE_WARNING);
-  }
-
   public void testCheckProvidesOn() {
     CompilerOptions options = createCompilerOptions();
     options.setCheckProvides(CheckLevel.ERROR);
@@ -385,22 +376,26 @@ public class IntegrationTest extends IntegrationTestCase {
     CompilationLevel.ADVANCED_OPTIMIZATIONS
         .setOptionsForCompilationLevel(options);
     test(options,
-         "var x = {eeny: 1, /** @expose */ meeny: 2};" +
-         "/** @constructor */ var Foo = function() {};" +
-         "/** @expose */  Foo.prototype.miny = 3;" +
-         "Foo.prototype.moe = 4;" +
-         "/** @expose */  Foo.prototype.tiger;" +
-         "function moe(a, b) { return a.meeny + b.miny + a.tiger; }" +
-         "window['x'] = x;" +
-         "window['Foo'] = Foo;" +
-         "window['moe'] = moe;",
-         "function a(){}" +
-         "a.prototype.miny=3;" +
-         "window.x={a:1,meeny:2};" +
-         "window.Foo=a;" +
-         "window.moe=function(b,c){" +
-         "  return b.meeny+c.miny+b.tiger" +
-         "}");
+        new String[] {"var x = {eeny: 1, /** @expose */ meeny: 2};" +
+            "/** @constructor */ var Foo = function() {};" +
+            "/** @expose */  Foo.prototype.miny = 3;" +
+            "Foo.prototype.moe = 4;" +
+            "/** @expose */  Foo.prototype.tiger;" +
+            "function moe(a, b) { return a.meeny + b.miny + a.tiger; }" +
+            "window['x'] = x;" +
+            "window['Foo'] = Foo;" +
+            "window['moe'] = moe;"},
+        new String[] {"function a(){}" +
+            "a.prototype.miny=3;" +
+            "window.x={a:1,meeny:2};" +
+            "window.Foo=a;" +
+            "window.moe=function(b,c){" +
+            "  return b.meeny+c.miny+b.tiger" +
+            "}"},
+        new DiagnosticType[]{
+            RhinoErrorReporter.PARSE_ERROR,
+            RhinoErrorReporter.PARSE_ERROR,
+            RhinoErrorReporter.PARSE_ERROR});
   }
 
   public void testCheckSymbolsOff() {
@@ -612,7 +607,7 @@ public class IntegrationTest extends IntegrationTestCase {
     CompilerOptions options = createCompilerOptions();
     testSame(options, code);
 
-    options.setIdGenerators(Sets.newHashSet("f"));
+    options.setIdGenerators(ImmutableSet.of("f"));
     test(options, code, "function f() {} 'a';");
   }
 
@@ -791,7 +786,7 @@ public class IntegrationTest extends IntegrationTestCase {
 
   public void testExtraAnnotationNames() {
     CompilerOptions options = createCompilerOptions();
-    options.setExtraAnnotationNames(Sets.newHashSet("TagA", "TagB"));
+    options.setExtraAnnotationNames(ImmutableSet.of("TagA", "TagB"));
     test(
         options,
         "/** @TagA */ var f = new Foo(); /** @TagB */ f.bar();",
@@ -821,7 +816,6 @@ public class IntegrationTest extends IntegrationTestCase {
   public void testAllChecksOn() {
     CompilerOptions options = createCompilerOptions();
     options.setCheckSuspiciousCode(true);
-    options.setCheckRequires(CheckLevel.ERROR);
     options.setCheckProvides(CheckLevel.ERROR);
     options.setGenerateExports(true);
     options.exportTestFunctions = true;
@@ -2413,8 +2407,9 @@ public class IntegrationTest extends IntegrationTestCase {
   }
 
   public void testAlwaysRunSafetyCheck() {
-    Multimap<CustomPassExecutionTime, CompilerPass> custom =
-        ImmutableMultimap.<CustomPassExecutionTime, CompilerPass>of(
+    CompilerOptions options = createCompilerOptions();
+    options.setCheckSymbols(false);
+    options.addCustomPass(
             CustomPassExecutionTime.BEFORE_OPTIMIZATIONS, new CompilerPass() {
               @Override
               public void process(Node externs, Node root) {
@@ -2424,9 +2419,7 @@ public class IntegrationTest extends IntegrationTestCase {
               }
             });
 
-    CompilerOptions options = createCompilerOptions();
-    options.setCheckSymbols(false);
-    options.setCustomPasses(custom);
+
     try {
       test(options,
            "var x = 3; function f() { return x + z; }",
@@ -2852,15 +2845,6 @@ public class IntegrationTest extends IntegrationTestCase {
     test(options, code, ConstCheck.CONST_REASSIGNED_VALUE_ERROR);
   }
 
-  public void testBiasedLabelRenaming() {
-    CompilerOptions options = createCompilerOptions();
-    options.setAggressiveRenaming(true);
-    options.setLabelRenaming(true);
-    String code = "function a() {lbl: while(1) {while(1) {break lbl}}}";
-    String result = "function a() {f: for(;1;) for(;1;)break f}";
-    test(options, code, result);
-  }
-
   public void testIssue937() {
     CompilerOptions options = createCompilerOptions();
     CompilationLevel level = CompilationLevel.SIMPLE_OPTIMIZATIONS;
@@ -2885,6 +2869,67 @@ public class IntegrationTest extends IntegrationTestCase {
         .setOptionsForCompilationLevel(options);
     String code = "f = function(c) { for (var i = 0; i < c.length; i++) {} };";
     compile(options, code);
+  }
+
+  // Tests that unused classes are removed, even if they are passed to $jscomp.inherits.
+  private void testES6UnusedClassesAreRemoved(CodingConvention convention) {
+    CompilerOptions options = createCompilerOptions();
+    options.setLanguageIn(LanguageMode.ECMASCRIPT6_STRICT);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT3);
+    options.setCodingConvention(convention);
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    Compiler compiler = compile(options, Joiner.on('\n').join(
+        "class Base {}",
+        "class Sub extends Base {}",
+        "alert(1);"));
+    String result = compiler.toSource(compiler.getJsRoot());
+    assertThat(result).isEqualTo("alert(1)");
+  }
+
+  public void testES6UnusedClassesAreRemoved() {
+    testES6UnusedClassesAreRemoved(CodingConventions.getDefault());
+    testES6UnusedClassesAreRemoved(new ClosureCodingConvention());
+    testES6UnusedClassesAreRemoved(new GoogleCodingConvention());
+  }
+
+  /**
+   * @param js A snippet of JavaScript in which alert('No one ever calls me'); is called
+   *     in a method which is never called. Verifies that the method is stripped out by
+   *     asserting that the result does not contain the string 'No one ever calls me'.
+   */
+  private void testES6StaticsAreRemoved(String js) {
+    CompilerOptions options = createCompilerOptions();
+    options.setLanguageIn(LanguageMode.ECMASCRIPT6_STRICT);
+    options.setLanguageOut(LanguageMode.ECMASCRIPT3);
+    CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
+    Compiler compiler = compile(options, js);
+    String result = compiler.toSource(compiler.getJsRoot());
+    assertThat(result).isNotEmpty();
+    assertThat(result).doesNotContain("No one ever calls me");
+  }
+
+  public void testES6StaticsAreRemoved1() {
+    testES6StaticsAreRemoved(Joiner.on('\n').join(
+        "class Base {",
+        "  static called() { alert('I am called'); }",
+        "  static notCalled() { alert('No one ever calls me'); }",
+        "}",
+        "class Sub extends Base {",
+        "  static called() { super.called(); alert('I am called too'); }",
+        "  static notCalled() { alert('No one ever calls me'); }",
+        "}",
+        "Sub.called();"));
+  }
+
+  public void failing_testES6StaticsAreRemoved2() {
+    testES6StaticsAreRemoved(Joiner.on('\n').join(
+        "class Base {",
+        "  static calledInSubclassOnly() { alert('No one ever calls me'); }",
+        "}",
+        "class Sub extends Base {",
+        "  static calledInSubclassOnly() { alert('I am called'); }",
+        "}",
+        "Sub.calledInSubclassOnly();"));
   }
 
   public void testIssue787() {

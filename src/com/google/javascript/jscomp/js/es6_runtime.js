@@ -20,78 +20,54 @@
  * @author mattloring@google.com (Matthew Loring)
  */
 
-/**
- * @constructor
- * @template T
- */
-$jscomp.IteratorResult = function() {};
+
+
+/** The global object. */
+$jscomp.global = this;
 
 
 /**
- * @type {boolean}
+ * Initializes Symbol.iterator, if it's not already defined.
+ * @suppress {reportUnknownTypes}
  */
-$jscomp.IteratorResult.prototype.done;
+$jscomp.initSymbolIterator = function() {
+  Symbol = $jscomp.global.Symbol || {};
+  if (!Symbol.iterator) {
+    Symbol.iterator = '$jscomp$iterator';
+  }
 
-
-/**
- * @type {T}
- */
-$jscomp.IteratorResult.prototype.value;
-
-
-
-/**
- * @interface
- * @template T
- */
-$jscomp.Iterator = function() {};
-
-
-/**
- * @param {Object=} def
- * @return {!$jscomp.IteratorResult.<T>}
- */
-$jscomp.Iterator.prototype.next;
-
-
-
-/**
- * @interface
- * @template T
- */
-$jscomp.Iterable = function() {};
-
-
-/**
- * @return {!$jscomp.Iterator.<T>}
- */
-$jscomp.Iterable.prototype.$$iterator = function() {};
+  // Only need to do this once. All future calls are no-ops.
+  $jscomp.initSymbolIterator = function() {};
+};
 
 
 /**
  * Creates an iterator for the given iterable.
  *
- * @param {string|!Array.<T>|!$jscomp.Iterable.<T>} iterable
- * @return {!$jscomp.Iterator.<T>}
+ * @param {string|!Array<T>|!Iterable<T>|!Iterator<T>} iterable
+ * @return {!Iterator<T>}
  * @template T
+ * @suppress {reportUnknownTypes}
  */
 $jscomp.makeIterator = function(iterable) {
-  if (iterable.$$iterator) {
-    return iterable.$$iterator();
+  $jscomp.initSymbolIterator();
+
+  if (iterable[Symbol.iterator]) {
+    return iterable[Symbol.iterator]();
   }
   if (!(iterable instanceof Array) && typeof iterable != 'string') {
     throw new Error();
   }
   var index = 0;
-  return /** @type {!$jscomp.Iterator} */ ({
+  return /** @type {!Iterator} */ ({
     next: function() {
       if (index == iterable.length) {
-        return /** @type {!$jscomp.IteratorResult} */ ({ done: true });
+        return { done: true };
       } else {
-        return /** @type {!$jscomp.IteratorResult} */ ({
+        return {
           done: false,
           value: iterable[index++]
-        });
+        };
       }
     }
   });
@@ -100,8 +76,8 @@ $jscomp.makeIterator = function(iterable) {
 /**
  * Transfers properties on the from object onto the to object.
  *
- * @param {Object} to
- * @param {Object} from
+ * @param {!Object} to
+ * @param {!Object} from
  */
 $jscomp.copyProperties = function(to, from) {
   for (var p in from) {
@@ -129,37 +105,14 @@ $jscomp.copyProperties = function(to, from) {
  * child.foo(); // This works.
  * </pre>
  *
- * @param {Function} childCtor Child class.
- * @param {Function} parentCtor Parent class.
+ * @param {!Function} childCtor Child class.
+ * @param {!Function} parentCtor Parent class.
  */
 $jscomp.inherits = function(childCtor, parentCtor) {
   /** @constructor */
   function tempCtor() {}
   tempCtor.prototype = parentCtor.prototype;
-  childCtor.superClass_ = parentCtor.prototype;
   childCtor.prototype = new tempCtor();
   /** @override */
   childCtor.prototype.constructor = childCtor;
-
-  /**
-   * Calls superclass constructor/method.
-   *
-   * This function is only available if you use $jscomp$inherits to
-   * express inheritance relationships between classes.
-   *
-   * NOTE: This is a replacement for goog.base and for superClass_
-   * property defined in childCtor.
-   *
-   * @param {!Object} me Should always be "this".
-   * @param {string} methodName The method name to call. Calling
-   *     superclass constructor can be done with the special string
-   *     'constructor'.
-   * @param {...*} var_args The arguments to pass to superclass
-   *     method/constructor.
-   * @return {*} The return value of the superclass method/constructor.
-   */
-  childCtor.base = function(me, methodName, var_args) {
-    var args = Array.prototype.slice.call(arguments, 2);
-    return parentCtor.prototype[methodName].apply(me, args);
-  };
 };

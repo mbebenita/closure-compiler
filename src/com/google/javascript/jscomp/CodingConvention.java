@@ -18,12 +18,12 @@ package com.google.javascript.jscomp;
 import com.google.javascript.jscomp.newtypes.DeclaredTypeRegistry;
 import com.google.javascript.jscomp.newtypes.JSType;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.StaticSourceFile;
 import com.google.javascript.rhino.jstype.FunctionType;
 import com.google.javascript.rhino.jstype.JSTypeNative;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
 import com.google.javascript.rhino.jstype.ObjectType;
-import com.google.javascript.rhino.jstype.StaticScope;
-import com.google.javascript.rhino.jstype.StaticSourceFile;
+import com.google.javascript.rhino.jstype.StaticTypedScope;
 
 import java.io.Serializable;
 import java.util.Collection;
@@ -255,7 +255,7 @@ public interface CodingConvention extends Serializable {
    */
   public void defineDelegateProxyPrototypeProperties(
       JSTypeRegistry registry,
-      StaticScope<com.google.javascript.rhino.jstype.JSType> scope,
+      StaticTypedScope<com.google.javascript.rhino.jstype.JSType> scope,
       List<ObjectType> delegateProxyPrototypes,
       Map<String, String> delegateCallingConventions);
 
@@ -467,8 +467,7 @@ public interface CodingConvention extends Serializable {
      * Returns the new type system type for a type assertion.
      * @param call The asserting call
      */
-    public com.google.javascript.jscomp.newtypes.JSType
-        getAssertedNewType(Node call, DeclaredTypeRegistry scope) {
+    public JSType getAssertedNewType(Node call, DeclaredTypeRegistry scope) {
       return assertedNewType;
     }
   }

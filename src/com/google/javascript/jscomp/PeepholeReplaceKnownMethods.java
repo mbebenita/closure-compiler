@@ -17,10 +17,11 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 
+import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 
@@ -149,14 +150,9 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization{
 
       String functionNameString = callTarget.getString();
       Node firstArgument = callTarget.getNext();
-      if ((firstArgument != null) &&
-          (firstArgument.isString() ||
-           firstArgument.isNumber())) {
-        if (functionNameString.equals("parseInt") ||
-            functionNameString.equals("parseFloat")) {
-          subtree = tryFoldParseNumber(subtree, functionNameString,
-              firstArgument);
-        }
+      if ((firstArgument != null) && (firstArgument.isString() || firstArgument.isNumber())
+          && (functionNameString.equals("parseInt") || functionNameString.equals("parseFloat"))) {
+        subtree = tryFoldParseNumber(subtree, functionNameString, firstArgument);
       }
     }
     return subtree;
@@ -421,7 +417,7 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization{
     }
 
     String joinString = (right == null) ? "," : NodeUtil.getStringValue(right);
-    List<Node> arrayFoldedChildren = Lists.newLinkedList();
+    List<Node> arrayFoldedChildren = new LinkedList<>();
     StringBuilder sb = null;
     int foldedSize = 0;
     Node prev = null;
@@ -713,7 +709,7 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization{
       return new String[] {stringValue};
     }
 
-    List<String> splitStrings = Lists.newArrayList();
+    List<String> splitStrings = new ArrayList<>();
 
     // If an empty string is specified for the separator, split apart each
     // character of the string.
@@ -783,9 +779,8 @@ class PeepholeReplaceKnownMethods extends AbstractPeepholeOptimization{
     // Split the string and convert the returned array into JS nodes
     String[] stringArray = jsSplit(stringValue, separator, limit);
     Node arrayOfStrings = IR.arraylit();
-    for (int i = 0; i < stringArray.length; i++) {
-      arrayOfStrings.addChildToBack(
-          IR.string(stringArray[i]).srcref(stringNode));
+    for (String element : stringArray) {
+      arrayOfStrings.addChildToBack(IR.string(element).srcref(stringNode));
     }
 
     Node parent = n.getParent();

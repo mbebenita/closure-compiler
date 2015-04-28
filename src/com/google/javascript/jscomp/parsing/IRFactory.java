@@ -20,7 +20,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import com.google.common.collect.UnmodifiableIterator;
 import com.google.javascript.jscomp.parsing.Config.LanguageMode;
 import com.google.javascript.jscomp.parsing.parser.IdentifierToken;
@@ -44,6 +43,7 @@ import com.google.javascript.jscomp.parsing.parser.trees.ComprehensionIfTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ComprehensionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ComputedPropertyDefinitionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ComputedPropertyGetterTree;
+import com.google.javascript.jscomp.parsing.parser.trees.ComputedPropertyMemberVariableTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ComputedPropertyMethodTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ComputedPropertySetterTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ConditionalExpressionTree;
@@ -71,6 +71,7 @@ import com.google.javascript.jscomp.parsing.parser.trees.LabelledStatementTree;
 import com.google.javascript.jscomp.parsing.parser.trees.LiteralExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.MemberExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.MemberLookupExpressionTree;
+import com.google.javascript.jscomp.parsing.parser.trees.MemberVariableTree;
 import com.google.javascript.jscomp.parsing.parser.trees.MissingPrimaryExpressionTree;
 import com.google.javascript.jscomp.parsing.parser.trees.ModuleImportTree;
 import com.google.javascript.jscomp.parsing.parser.trees.NewExpressionTree;
@@ -110,12 +111,15 @@ import com.google.javascript.jscomp.parsing.parser.util.SourceRange;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
+import com.google.javascript.rhino.JSDocInfoBuilder;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Node.TypeDeclarationNode;
+import com.google.javascript.rhino.StaticSourceFile;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TokenStream;
-import com.google.javascript.rhino.jstype.StaticSourceFile;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -144,6 +148,9 @@ class IRFactory {
 
   static final String MISPLACED_FUNCTION_ANNOTATION =
       "This JSDoc is not attached to a function node. Are you missing parentheses?";
+
+  static final String MISPLACED_MSG_ANNOTATION =
+      "@desc, @hidden, and @meaning annotations should only be on message nodes.";
 
   static final String INVALID_ES3_PROP_NAME =
       "Keywords and reserved words are not allowed as unquoted property " +
@@ -191,6 +198,9 @@ class IRFactory {
 
   static final String UNDEFINED_LABEL = "undefined label \"%s\"";
 
+  static final String ANNOTATION_DEPRECATED =
+      "The %s annotation is deprecated.%s";
+
   private final String sourceString;
   private final List<Integer> newlines;
   private final StaticSourceFile sourceFile;
@@ -214,13 +224,11 @@ class IRFactory {
           "public", "static", "yield");
 
   private final Set<String> reservedKeywords;
-  private final Set<Comment> parsedComments = Sets.newHashSet();
+  private final Set<Comment> parsedComments = new HashSet<>();
 
   // @license text gets appended onto the fileLevelJsDocBuilder as found,
   // and stored in JSDocInfo for placeholder node.
-  Node rootNodeJsDocHolder = new Node(Token.SCRIPT);
-  Node.FileLevelJsDocBuilder fileLevelJsDocBuilder =
-      rootNodeJsDocHolder.getJsDocBuilderForNode();
+  JSDocInfoBuilder fileLevelJsDocBuilder;
   JSDocInfo fileOverviewInfo = null;
 
   // Use a template node for properties set on all nodes to minimize the
@@ -243,8 +251,10 @@ class IRFactory {
     this.sourceString = sourceString;
     this.nextCommentIter = comments.iterator();
     this.currentComment = nextCommentIter.hasNext() ? nextCommentIter.next() : null;
-    this.newlines = Lists.newArrayList();
+    this.newlines = new ArrayList<>();
     this.sourceFile = sourceFile;
+    this.fileLevelJsDocBuilder = new JSDocInfoBuilder(
+        config.parseJsDocDocumentation);
 
     // Pre-generate all the newlines in the file.
     for (int charNo = 0; true; charNo++) {
@@ -464,6 +474,63 @@ class IRFactory {
   private void validateJsDoc(Node n) {
     validateTypeAnnotations(n);
     validateFunctionJsDoc(n);
+    validateMsgJsDoc(n);
+    validateDeprecatedJsDoc(n);
+  }
+
+  /**
+   * Checks that deprecated annotations such as @expose are not present
+   */
+  private void validateDeprecatedJsDoc(Node n) {
+    JSDocInfo info = n.getJSDocInfo();
+    if (info == null) {
+      return;
+    }
+    if (info.isExpose()) {
+      errorReporter.warning(
+          String.format(ANNOTATION_DEPRECATED, "@expose",
+              " Use @nocollapse or @export instead."),
+          sourceName,
+          n.getLineno(), n.getCharno());
+    }
+  }
+
+  /**
+   * Checks that annotations for messages ({@code @desc}, {@code @hidden}, and {@code @meaning})
+   * are in the proper place, namely on names starting with MSG_ which indicates they should be
+   * extracted for translation. A later pass checks that the right side is a call to goog.getMsg.
+   */
+  private void validateMsgJsDoc(Node n) {
+    JSDocInfo info = n.getJSDocInfo();
+    if (info == null) {
+      return;
+    }
+    if (info.getDescription() != null || info.isHidden() || info.getMeaning() != null) {
+      boolean descOkay = false;
+      switch (n.getType()) {
+        case Token.ASSIGN: {
+          Node lhs = n.getFirstChild();
+          if (lhs.isName()) {
+            descOkay = lhs.getString().startsWith("MSG_");
+          } else if (lhs.isQualifiedName()) {
+            descOkay = lhs.getLastChild().getString().startsWith("MSG_");
+          }
+          break;
+        }
+        case Token.VAR:
+        case Token.LET:
+        case Token.CONST:
+          descOkay = n.getFirstChild().getString().startsWith("MSG_");
+          break;
+        case Token.STRING_KEY:
+          descOkay = n.getString().startsWith("MSG_");
+          break;
+      }
+      if (!descOkay) {
+        errorReporter.warning(MISPLACED_MSG_ANNOTATION,
+            sourceName, n.getLineno(), n.getCharno());
+      }
+    }
   }
 
   private JSDocInfo recordJsDoc(SourceRange location, JSDocInfo info) {
@@ -506,7 +573,7 @@ class IRFactory {
         case Token.CONST:
         case Token.GETTER_DEF:
         case Token.SETTER_DEF:
-        case Token.MEMBER_DEF:
+        case Token.MEMBER_FUNCTION_DEF:
         case Token.STRING_KEY:
         case Token.EXPORT:
           return;
@@ -616,19 +683,19 @@ class IRFactory {
     // Only after we've seen all @fileoverview entries, attach the
     // last one to the root node, and copy the found license strings
     // to that node.
-    JSDocInfo rootNodeJsDoc = rootNodeJsDocHolder.getJSDocInfo();
+    JSDocInfo rootNodeJsDoc = fileLevelJsDocBuilder.build();
     if (rootNodeJsDoc != null) {
       irNode.setJSDocInfo(rootNodeJsDoc);
-      rootNodeJsDoc.setAssociatedNode(irNode);
     }
 
     if (fileOverviewInfo != null) {
       if ((irNode.getJSDocInfo() != null) &&
           (irNode.getJSDocInfo().getLicense() != null)) {
-        fileOverviewInfo.setLicense(irNode.getJSDocInfo().getLicense());
+        JSDocInfoBuilder builder = JSDocInfoBuilder.copyFrom(fileOverviewInfo);
+        builder.recordLicense(irNode.getJSDocInfo().getLicense());
+        fileOverviewInfo = builder.build();
       }
       irNode.setJSDocInfo(fileOverviewInfo);
-      fileOverviewInfo.setAssociatedNode(irNode);
     }
   }
 
@@ -797,15 +864,10 @@ class IRFactory {
     Node node = justTransform(tree);
     if (info != null) {
       node = maybeInjectCastNode(tree, info, node);
-      attachJSDoc(info, node);
+      node.setJSDocInfo(info);
     }
     setSourceInfo(node, tree);
     return node;
-  }
-
-  private static void attachJSDoc(JSDocInfo info, Node n) {
-    info.setAssociatedNode(n);
-    n.setJSDocInfo(info);
   }
 
   private Node maybeInjectCastNode(ParseTree node, JSDocInfo info, Node irNode) {
@@ -954,7 +1016,6 @@ class IRFactory {
                                charno + numOpeningChars),
           comment,
           position,
-          null,
           sourceFile,
           config,
           errorReporter);
@@ -981,7 +1042,6 @@ class IRFactory {
               charno + numOpeningChars),
           comment,
           node.location.start.offset,
-          null,
           sourceFile,
           config,
           errorReporter);
@@ -999,12 +1059,6 @@ class IRFactory {
   private void maybeSetLengthFrom(Node node, Node ref) {
     if (config.isIdeMode) {
       node.setLength(ref.getLength());
-    }
-  }
-
-  private void maybeSetLength(Node node, int length) {
-    if (config.isIdeMode) {
-      node.setLength(length);
     }
   }
 
@@ -1110,10 +1164,9 @@ class IRFactory {
       while (isDirective(node.getFirstChild())) {
         String directive = node.removeFirstChild().getFirstChild().getString();
         if (directives == null) {
-          directives = Sets.newHashSet(directive);
-        } else {
-          directives.add(directive);
+          directives = new HashSet<>();
         }
+        directives.add(directive);
       }
 
       if (directives != null) {
@@ -1301,9 +1354,7 @@ class IRFactory {
 
         // Old Rhino tagged the empty name node with the line number of the
         // declaration.
-        newName.setLineno(lineno(functionTree));
-        newName.setCharno(charno(functionTree));
-        maybeSetLength(newName, 0);
+        setSourceInfo(newName, functionTree);
       }
 
       Node node = newNode(Token.FUNCTION);
@@ -1311,9 +1362,7 @@ class IRFactory {
         node.addChildToBack(newName);
       } else {
         Node emptyName = newStringNode(Token.NAME, "");
-        emptyName.setLineno(lineno(functionTree));
-        emptyName.setCharno(charno(functionTree));
-        maybeSetLength(emptyName, 0);
+        setSourceInfo(emptyName, functionTree);
         node.addChildToBack(emptyName);
       }
       node.addChildToBack(transform(functionTree.formalParameterList));
@@ -1340,7 +1389,7 @@ class IRFactory {
 
       if (functionTree.kind == FunctionDeclarationTree.Kind.MEMBER) {
         setSourceInfo(node, functionTree);
-        Node member = newStringNode(Token.MEMBER_DEF, name.value);
+        Node member = newStringNode(Token.MEMBER_FUNCTION_DEF, name.value);
         member.addChildToBack(node);
         member.setStaticMember(functionTree.isStatic);
         result = member;
@@ -1441,7 +1490,7 @@ class IRFactory {
         }
         node = newStringNode(Token.NAME, identifierToken.value);
         if (info != null) {
-          attachJSDoc(info, node);
+          node.setJSDocInfo(info);
         }
       }
       setSourceInfo(node, identifierToken);
@@ -1478,7 +1527,7 @@ class IRFactory {
       }
       Node node = newStringNode(Token.NAME, identifierToken.toString());
       if (info != null) {
-        attachJSDoc(info, node);
+        node.setJSDocInfo(info);
       }
       setSourceInfo(node, identifierToken);
       return node;
@@ -1512,7 +1561,9 @@ class IRFactory {
 
     Node processNumberLiteral(LiteralExpressionTree literalNode) {
       double value = normalizeNumber(literalNode.literalToken.asLiteral());
-      return newNumberNode(value);
+      Node number = newNumberNode(value);
+      setSourceInfo(number, literalNode);
+      return number;
     }
 
     Node processObjectLiteral(ObjectLiteralExpressionTree objTree) {
@@ -1554,6 +1605,17 @@ class IRFactory {
 
       return newNode(Token.COMPUTED_PROP,
           transform(tree.property), transform(tree.value));
+    }
+
+    Node processComputedPropertyMemberVariable(ComputedPropertyMemberVariableTree tree) {
+      maybeWarnEs6Feature(tree, "computed property");
+      maybeWarnTypeSyntax(tree);
+
+      Node n = newNode(Token.COMPUTED_PROP, transform(tree.property));
+      maybeProcessType(n, tree.declaredType);
+      n.putBooleanProp(Node.COMPUTED_PROP_VARIABLE, true);
+      n.setStaticMember(tree.isStatic);
+      return n;
     }
 
     Node processComputedPropertyMethod(ComputedPropertyMethodTree tree) {
@@ -2025,6 +2087,13 @@ class IRFactory {
       return newNode(Token.SUPER);
     }
 
+    Node processMemberVariable(MemberVariableTree tree) {
+      Node member = newStringNode(Token.MEMBER_VARIABLE_DEF, tree.name.value);
+      maybeProcessType(member, tree.declaredType);
+      member.setStaticMember(tree.isStatic);
+      return member;
+    }
+
     Node processYield(YieldExpressionTree tree) {
       Node yield = new Node(Token.YIELD);
       if (tree.expression != null) {
@@ -2130,8 +2199,7 @@ class IRFactory {
       } else {
         typeNode = TypeDeclarationsIRFactory.namedType(tree.segments);
       }
-      typeNode.setCharno(charno(tree));
-      typeNode.setLineno(lineno(tree));
+      setSourceInfo(typeNode, tree);
       return typeNode;
     }
 
@@ -2300,6 +2368,8 @@ class IRFactory {
           return processComputedPropertyDefinition(node.asComputedPropertyDefinition());
         case COMPUTED_PROPERTY_GETTER:
           return processComputedPropertyGetter(node.asComputedPropertyGetter());
+        case COMPUTED_PROPERTY_MEMBER_VARIABLE:
+          return processComputedPropertyMemberVariable(node.asComputedPropertyMemberVariable());
         case COMPUTED_PROPERTY_METHOD:
           return processComputedPropertyMethod(node.asComputedPropertyMethod());
         case COMPUTED_PROPERTY_SETTER:
@@ -2401,6 +2471,8 @@ class IRFactory {
           return processParameterizedType(node.asParameterizedType());
         case ARRAY_TYPE:
           return processArrayType(node.asArrayType());
+        case MEMBER_VARIABLE:
+          return processMemberVariable(node.asMemberVariable());
 
         default:
           break;

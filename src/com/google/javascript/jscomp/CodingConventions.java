@@ -19,12 +19,12 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.StaticSourceFile;
 import com.google.javascript.rhino.jstype.FunctionType;
 import com.google.javascript.rhino.jstype.JSType;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
 import com.google.javascript.rhino.jstype.ObjectType;
-import com.google.javascript.rhino.jstype.StaticScope;
-import com.google.javascript.rhino.jstype.StaticSourceFile;
+import com.google.javascript.rhino.jstype.StaticTypedScope;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -35,7 +35,7 @@ import java.util.Map;
  * Helper classes for dealing with coding conventions.
  * @author nicksantos@google.com (Nick Santos)
  */
-public class CodingConventions {
+public final class CodingConventions {
 
   private CodingConventions() {}
 
@@ -209,7 +209,7 @@ public class CodingConventions {
 
     @Override
     public void defineDelegateProxyPrototypeProperties(
-        JSTypeRegistry registry, StaticScope<JSType> scope,
+        JSTypeRegistry registry, StaticTypedScope<JSType> scope,
         List<ObjectType> delegateProxyPrototypes,
         Map<String, String> delegateCallingConventions) {
       nextConvention.defineDelegateProxyPrototypeProperties(
@@ -326,7 +326,18 @@ public class CodingConventions {
 
     @Override
     public SubclassRelationship getClassesDefinedByCall(Node callNode) {
-      return null;
+      Node callName = callNode.getFirstChild();
+      if ((callName.matchesQualifiedName("$jscomp.inherits")
+          || callName.matchesQualifiedName("$jscomp$inherits"))
+          && callNode.getChildCount() == 3) {
+        Node subclass = callName.getNext();
+        Node superclass = subclass.getNext();
+
+        return new SubclassRelationship(
+            SubclassType.INHERITS, subclass, superclass);
+      } else {
+        return null;
+      }
     }
 
     @Override
@@ -421,7 +432,7 @@ public class CodingConventions {
 
     @Override
     public void defineDelegateProxyPrototypeProperties(
-        JSTypeRegistry registry, StaticScope<JSType> scope,
+        JSTypeRegistry registry, StaticTypedScope<JSType> scope,
         List<ObjectType> delegateProxyPrototypes,
         Map<String, String> delegateCallingConventions) {
       // do nothing.

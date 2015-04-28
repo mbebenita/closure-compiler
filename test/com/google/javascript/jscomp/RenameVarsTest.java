@@ -26,11 +26,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
-
 /**
  * Tests for {@link RenameVars}.
  */
-public class RenameVarsTest extends CompilerTestCase {
+public final class RenameVarsTest extends CompilerTestCase {
   private static final String DEFAULT_PREFIX = "";
   private String prefix = DEFAULT_PREFIX;
 
@@ -569,14 +568,14 @@ public class RenameVarsTest extends CompilerTestCase {
   private void testRenameMapUsingOldMap(String input, String expected,
                                         VariableMap expectedMap) {
     previouslyUsedMap = renameVars.getVariableMap();
-    testRenameMap("", input, expected,  expectedMap);
+    testRenameMap("", input, expected, expectedMap);
   }
 
   private void testRenameMapUsingOldMap(String externs, String input,
                                         String expected,
                                         VariableMap expectedMap) {
     previouslyUsedMap = renameVars.getVariableMap();
-    testRenameMap(externs, input, expected,  expectedMap);
+    testRenameMap(externs, input, expected, expectedMap);
   }
 
   private void testRenameMap(String input, String expected,

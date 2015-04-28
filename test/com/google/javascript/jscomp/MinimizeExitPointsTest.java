@@ -21,7 +21,7 @@ import com.google.javascript.rhino.Node;
 /**
  * @author johnlenz@google.com (John Lenz)
  */
-public class MinimizeExitPointsTest extends CompilerTestCase {
+public final class MinimizeExitPointsTest extends CompilerTestCase {
 
   @Override
   public void setUp() {
@@ -49,10 +49,6 @@ public class MinimizeExitPointsTest extends CompilerTestCase {
 
   void fold(String js, String expected) {
     test(js, expected);
-  }
-
-  void fold(String js, String expected, DiagnosticType warning) {
-    test(js, expected, warning);
   }
 
   public void testBreakOptimization() throws Exception {

@@ -15,13 +15,18 @@
  */
 package com.google.javascript.refactoring.testing;
 
+import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertEquals;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.SetMultimap;
+import com.google.javascript.refactoring.ApplySuggestedFixes;
 import com.google.javascript.refactoring.CodeReplacement;
 import com.google.javascript.refactoring.SuggestedFix;
 
+import java.util.List;
 import java.util.Set;
 
 
@@ -40,7 +45,20 @@ public final class SuggestedFixes {
     SetMultimap<String, CodeReplacement> replacementMap = fix.getReplacements();
     assertEquals(1, replacementMap.size());
     Set<CodeReplacement> replacements = replacementMap.get("test");
-    assertEquals(expectedReplacements.size(), replacements.size());
+    assertThat(replacements).hasSize(expectedReplacements.size());
     assertEquals(expectedReplacements, replacements);
+  }
+
+  public static void assertChanges(
+      SuggestedFix fix, String externs, String originalCode, String expectedCode) {
+    assertChanges(ImmutableList.of(fix), externs, originalCode, expectedCode);
+  }
+
+  public static void assertChanges(
+      List<SuggestedFix> fixes, String externs, String originalCode, String expectedCode) {
+    assertThat(fixes).isNotEmpty();
+    String newCode = ApplySuggestedFixes.applySuggestedFixesToCode(
+        fixes, ImmutableMap.of("test", originalCode)).get("test");
+    assertEquals(expectedCode, newCode);
   }
 }

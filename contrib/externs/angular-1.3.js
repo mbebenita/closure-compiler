@@ -58,10 +58,14 @@ var JQLiteSelector;
 var angular = {};
 
 /**
- * @param {Object} self
- * @param {Function} fn
- * @param {...*} args
- * @return {Function}
+ * @param {T} self Specifies the object which this should point to when the
+ *     function is run.
+ * @param {?function(this:T, ...)} fn A function to partially apply.
+ * @return {!Function} A partially-applied form of the function bind() was
+ *     invoked as a method of.
+ * @param {...*} args Additional arguments that are partially applied to the
+ *     function.
+ * @template T
  */
 angular.bind = function(self, fn, args) {};
 
@@ -1149,7 +1153,7 @@ angular.$animateProvider.prototype.classNameFilter = function(
  *       (JQLiteSelector|Object),
  *       function(!angular.Scope, Function=)=, number=):
  *           function(!angular.Scope,
- *               function(Object, !angular.Scope=)=): Object}
+ *               function(!angular.JQLite, !angular.Scope=)=): !angular.JQLite}
  */
 angular.$compile;
 
@@ -1413,6 +1417,11 @@ angular.$HttpProvider;
  * @type {angular.$http.Config}
  */
 angular.$HttpProvider.defaults;
+
+/**
+ * @type {!Array.<string|function(...*): !angular.$http.Interceptor>}
+ */
+angular.$HttpProvider.interceptors;
 
 /**
  * @param {boolean=} opt_value
@@ -1759,6 +1768,11 @@ angular.NgModelController.prototype.$setPristine = function() {};
 /**
  * @type {function()}
  */
+angular.NgModelController.prototype.$setDirty = function() {};
+
+/**
+ * @type {function()}
+ */
 angular.NgModelController.prototype.$setUntouched = function() {};
 
 /**
@@ -2038,7 +2052,8 @@ angular.$routeParams;
 /**
  * @typedef {{
  *   otherwise:
- *       function(angular.$routeProvider.Params): !angular.$routeProvider,
+ *       function(
+ *           (string|!angular.$routeProvider.Params)): !angular.$routeProvider,
  *   when:
  *       function(
  *           string, angular.$routeProvider.Params): !angular.$routeProvider
@@ -2047,7 +2062,7 @@ angular.$routeParams;
 angular.$routeProvider;
 
 /**
- * @param {angular.$routeProvider.Params} params
+ * @param {(string|!angular.$routeProvider.Params)} params
  * @return {!angular.$routeProvider}
  */
 angular.$routeProvider.otherwise = function(params) {};

@@ -17,9 +17,7 @@ package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.jstype.JSTypeNative;
 import com.google.javascript.rhino.jstype.JSTypeRegistry;
@@ -27,6 +25,7 @@ import com.google.javascript.rhino.testing.BaseJSTypeTestCase;
 import com.google.javascript.rhino.testing.TestErrorReporter;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -37,7 +36,7 @@ import java.util.TreeSet;
  *
  */
 
-public class DisambiguatePropertiesTest extends CompilerTestCase {
+public final class DisambiguatePropertiesTest extends CompilerTestCase {
   private DisambiguateProperties<?> lastPass;
 
   public DisambiguatePropertiesTest() {
@@ -58,7 +57,7 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
     return new CompilerPass() {
       @Override
       public void process(Node externs, Node root) {
-        Map<String, CheckLevel> propertiesToErrorFor = Maps.newHashMap();
+        Map<String, CheckLevel> propertiesToErrorFor = new HashMap<>();
         propertiesToErrorFor.put("foobar", CheckLevel.ERROR);
 
         // This must be created after type checking is run as it depends on
@@ -440,10 +439,6 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
         + "function Foo(){}Foo.prototype.Foo_prototype$a=0;"
         + "function Bar(){}Bar.prototype.Bar_prototype$a=0;"
         + "var F=new Foo;F.Bar_prototype$a=0;";
-    String ttOutput = ""
-        + "function Foo(){}Foo.prototype.Foo_prototype$a=0;"
-        + "function Bar(){}Bar.prototype.Bar_prototype$a=0;"
-        + "var F=new Foo;F.Unique$1$a=0;";
     testSets(js, output, "{a=[[Bar.prototype], [Foo.prototype]]}");
   }
 
@@ -456,11 +451,6 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
       + "new Foo";
     String output = ""
         + "var Foo=function(){this.Foo$a=0};"
-        + "function Bar(){}"
-        + "Bar.prototype.Bar_prototype$a=0;"
-        + "new Foo";
-    String ttOutput = ""
-        + "var Foo=function(){this.Foo_prototype$a=0};"
         + "function Bar(){}"
         + "Bar.prototype.Bar_prototype$a=0;"
         + "new Foo";
@@ -499,11 +489,6 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
         + "function Foo(){}Foo.prototype.Foo_prototype$a=0;"
         + "function Bar(){}Bar.prototype.Foo_prototype$a=0;"
         + "var B = new Bar;B.Foo_prototype$a=0;"
-        + "function Baz(){}Baz.prototype.Baz_prototype$a=function(){};";
-    String ttOutput = ""
-        + "function Foo(){}Foo.prototype.Foo_prototype$a=0;"
-        + "function Bar(){}Bar.prototype.Bar_prototype$a=0;"
-        + "var B = new Bar;B.Bar_prototype$a=0;"
         + "function Baz(){}Baz.prototype.Baz_prototype$a=function(){};";
     testSets(js, output, "{a=[[Baz.prototype], [Foo.prototype]]}");
   }
@@ -571,13 +556,6 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
         + "Foo.prototype.a = fun();\n"
         + "fun().a;\n"
         + "Bar.prototype.a = 0;";
-    String ttOutput = ""
-        + "var Foo=function(){};\n"
-        + "var Bar=function(){};\n"
-        + "function fun(){}\n"
-        + "Foo.prototype.Foo_prototype$a=fun();\n"
-        + "fun().Unique$1$a;\n"
-        + "Bar.prototype.Bar_prototype$a=0;";
     testSets(js, js, "{}");
   }
 
@@ -593,13 +571,6 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
         + "Foo.prototype.A = 0;\n"
         + "Foo.prototype.B = 0;\n";
     String output = ""
-        + "var En={A:'first',B:'second'};"
-        + "var EA=En.A;"
-        + "var EB=En.B;"
-        + "function Foo(){};"
-        + "Foo.prototype.Foo_prototype$A=0;"
-        + "Foo.prototype.Foo_prototype$B=0";
-    String ttOutput = ""
         + "var En={A:'first',B:'second'};"
         + "var EA=En.A;"
         + "var EB=En.B;"
@@ -752,20 +723,6 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
     // through Bar in the unions Bar|Baz and Foo|Bar.
     String output = ""
         + "function Ind() { this.Ind$a = 0; }"
-        + "function Foo() {}"
-        + "Foo.prototype.a = 0;"
-        + "function Bar() {}"
-        + "Bar.prototype.a = 0;"
-        + "var F = new Foo;"
-        + "F.a = 1;"
-        + "F = new Bar;"
-        + "var Z = new Baz;"
-        + "Z.a = 1;"
-        + "var B = new Baz;"
-        + "B.a = 1;"
-        + "B = new Bar;";
-    String ttOutput = ""
-        + "function Ind() { this.Unique$1$a = 0; }"
         + "function Foo() {}"
         + "Foo.prototype.a = 0;"
         + "function Bar() {}"
@@ -1264,16 +1221,15 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
   }
 
   public void testErrorOnProtectedProperty() {
-    test("function addSingletonGetter(foo) { foo.foobar = 'a'; };", null,
+    testError("function addSingletonGetter(foo) { foo.foobar = 'a'; };",
          DisambiguateProperties.Warnings.INVALIDATION);
     assertThat(getLastCompiler().getErrors()[0].toString()).contains("foobar");
   }
 
   public void testMismatchForbiddenInvalidation() {
-    test("/** @constructor */ function F() {}" +
+    testError("/** @constructor */ function F() {}" +
          "/** @type {number} */ F.prototype.foobar = 3;" +
          "/** @return {number} */ function g() { return new F(); }",
-         null,
          DisambiguateProperties.Warnings.INVALIDATION);
     assertThat(getLastCompiler().getErrors()[0].toString()).contains("Consider fixing errors");
   }
@@ -1297,7 +1253,7 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
         + "Z.foobar = 1\n;";
 
     test(
-        externs, js, "",
+        externs, js, (String) null,
         DisambiguateProperties.Warnings.INVALIDATION_ON_TYPE, null);
     assertThat(getLastCompiler().getErrors()[0].toString()).contains("foobar");
   }
@@ -1305,26 +1261,23 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
   public void runFindHighestTypeInChain() {
     // Check that this doesn't go into an infinite loop.
     DisambiguateProperties.forJSTypeSystem(new Compiler(),
-        Maps.<String, CheckLevel>newHashMap())
+         new HashMap<String, CheckLevel>())
         .getTypeWithProperty("no",
             new JSTypeRegistry(new TestErrorReporter(null, null))
             .getNativeType(JSTypeNative.OBJECT_PROTOTYPE));
   }
 
-  @SuppressWarnings("unchecked")
   private void testSets(String js, String expected, String fieldTypes) {
     test(js, expected);
     assertEquals(
         fieldTypes, mapToString(lastPass.getRenamedTypesForTesting()));
   }
 
-  @SuppressWarnings("unchecked")
   private void testSets(String externs, String js, String expected,
        String fieldTypes) {
     testSets(externs, js, expected, fieldTypes, null, null);
   }
 
-  @SuppressWarnings("unchecked")
   private void testSets(String externs, String js, String expected,
        String fieldTypes, DiagnosticType warning, String description) {
     test(externs, js, expected, null, warning, description);
@@ -1358,11 +1311,11 @@ public class DisambiguatePropertiesTest extends CompilerTestCase {
 
   /** Sorts the map and converts to a string for comparison purposes. */
   private <T> String mapToString(Multimap<String, Collection<T>> map) {
-    TreeMap<String, String> retMap = Maps.newTreeMap();
+    TreeMap<String, String> retMap = new TreeMap<>();
     for (String key : map.keySet()) {
-      TreeSet<String> treeSet = Sets.newTreeSet();
+      TreeSet<String> treeSet = new TreeSet<>();
       for (Collection<T> collection : map.get(key)) {
-        Set<String> subSet = Sets.newTreeSet();
+        Set<String> subSet = new TreeSet<>();
         for (T type : collection) {
           subSet.add(type.toString());
         }
