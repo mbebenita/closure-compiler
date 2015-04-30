@@ -248,7 +248,6 @@ public enum CompilationLevel {
     // Call optimizations
     options.devirtualizePrototypeMethods = true;
     options.optimizeParameters = true;
-    options.optimizeReturns = true;
 
     // The following optimizations break Shumway builds and need further investigation:
     //   options.removeUnusedPrototypeProperties = true;
@@ -256,6 +255,7 @@ public enum CompilationLevel {
     //   options.removeUnusedClassProperties = true;
     //   options.smartNameRemoval = true;
     //   options.optimizeCalls = true;
+    //   options.optimizeReturns = true;
   }
 
   private static void applyJ2MECompilationOptions(CompilerOptions options, boolean aotMode) {
