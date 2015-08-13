@@ -46,6 +46,16 @@ public enum CompilationLevel {
    * names and variables, removing code which is never called, etc.
    */
   ADVANCED_OPTIMIZATIONS,
+
+  /**
+   * SHUMWAY_OPTIMIZATIONS optimizations known to work for Shumway.
+   */
+  SHUMWAY_OPTIMIZATIONS,
+
+  /**
+   * J2ME_OPTIMIZATIONS optimizations known to work for Shumway.
+   */
+  J2ME_OPTIMIZATIONS,
   ;
 
   private CompilationLevel() {}
@@ -60,6 +70,12 @@ public enum CompilationLevel {
         break;
       case ADVANCED_OPTIMIZATIONS:
         applyFullCompilationOptions(options);
+        break;
+      case SHUMWAY_OPTIMIZATIONS:
+        applyShumwayCompilationOptions(options);
+        break;
+      case J2ME_OPTIMIZATIONS:
+        applyJ2MECompilationOptions(options);
         break;
       default:
         throw new RuntimeException("Unknown compilation level.");
@@ -174,6 +190,177 @@ public enum CompilationLevel {
     options.optimizeParameters = true;
     options.optimizeReturns = true;
     options.optimizeCalls = true;
+  }
+
+  private static void applyShumwayCompilationOptions(CompilerOptions options) {
+    // Do not call applySafeCompilationOptions(options) because the call can
+    // create possible conflicts between multiple diagnostic groups.
+
+    // All the safe optimizations.
+    options.dependencyOptions.setDependencySorting(true);
+    options.closurePass = true;
+    options.foldConstants = true;
+    options.coalesceVariableNames = true;
+    options.deadAssignmentElimination = true;
+    options.setExtractPrototypeMemberDeclarations(true);
+    options.collapseVariableDeclarations = true;
+    options.convertToDottedProperties = true;
+    options.labelRenaming = true;
+    options.removeDeadCode = true;
+    options.optimizeArgumentsArray = true;
+    options.collapseObjectLiterals = true;
+    options.protectHiddenSideEffects = true;
+
+    // All the advanced optimizations.
+    options.removeClosureAsserts = true;
+    options.reserveRawExports = true;
+    options.setRenamingPolicy(
+            VariableRenamingPolicy.LOCAL, PropertyRenamingPolicy.OFF);
+    options.shadowVariables = true;
+    options.collapseAnonymousFunctions = true;
+    options.collapseProperties = true;
+    options.checkGlobalThisLevel = CheckLevel.WARNING;
+    options.rewriteFunctionExpressions = false;
+    options.inlineConstantVars = true;
+    options.setInlineFunctions(Reach.ALL);
+    options.setAssumeClosuresOnlyCaptureReferences(false);
+    options.inlineGetters = true;
+    options.setInlineVariables(Reach.ALL);
+    options.flowSensitiveInlineVariables = true;
+    options.computeFunctionSideEffects = true;
+
+    // Remove unused vars also removes unused functions.
+    options.setRemoveUnusedVariables(Reach.LOCAL_ONLY);
+
+    // Move code around based on the defined modules.
+    options.crossModuleCodeMotion = true;
+    options.crossModuleMethodMotion = true;
+
+    // Call optimizations
+    options.devirtualizePrototypeMethods = true;
+    options.optimizeParameters = false;
+    options.optimizeReturns = true;
+
+    // The following optimizations break Shumway builds and need further investigation:
+    //   options.removeUnusedPrototypeProperties = true;
+    //   options.removeUnusedPrototypePropertiesInExterns = true;
+    //   options.removeUnusedClassProperties = true;
+    //   options.smartNameRemoval = true;
+    //   options.optimizeCalls = true;
+  }
+
+  private static void applyJ2MECompilationOptions(CompilerOptions options) {
+    // Do not call applySafeCompilationOptions(options) because the call can
+    // create possible conflicts between multiple diagnostic groups.
+
+    // All the safe optimizations.
+    options.dependencyOptions.setDependencySorting(true);
+    options.setClosurePass(true);
+    options.setFoldConstants(true);
+    options.setCoalesceVariableNames(false);
+    options.setDeadAssignmentElimination(true);
+    options.setExtractPrototypeMemberDeclarations(true);
+    options.setCollapseVariableDeclarations(true);
+    options.convertToDottedProperties = true;
+    options.labelRenaming = true;
+    options.setRemoveDeadCode(true);
+    options.setOptimizeArgumentsArray(true);
+    options.collapseObjectLiterals = true;
+    options.protectHiddenSideEffects = true;
+
+    // All the advanced optimizations.
+    options.removeClosureAsserts = true;
+    options.reserveRawExports = true;
+    options.setRenamingPolicy(
+        VariableRenamingPolicy.OFF, PropertyRenamingPolicy.OFF);
+    options.shadowVariables = true;
+    options.setRemoveUnusedPrototypeProperties(false);
+    options.setRemoveUnusedPrototypePropertiesInExterns(false);
+    options.setRemoveUnusedClassProperties(false);
+    options.setCollapseAnonymousFunctions(true);
+    options.setCollapseProperties(true);
+    options.setCheckGlobalThisLevel(CheckLevel.WARNING);
+    options.setRewriteFunctionExpressions(false);
+    options.setSmartNameRemoval(false);
+    options.setInlineConstantVars(true);
+    options.setInlineFunctions(Reach.ALL);
+    options.setAssumeClosuresOnlyCaptureReferences(false);
+    options.setInlineGetters(true);
+    options.setInlineVariables(Reach.ALL);
+    options.setFlowSensitiveInlineVariables(true);
+    options.setComputeFunctionSideEffects(true);
+
+    // Remove unused vars also removes unused functions.
+    options.setRemoveUnusedVariables(Reach.LOCAL_ONLY);
+
+    // Move code around based on the defined modules.
+    options.setCrossModuleCodeMotion(true);
+    options.setCrossModuleMethodMotion(true);
+
+    // Call optimizations
+    options.setDevirtualizePrototypeMethods(true);
+    options.optimizeParameters = false;
+    options.optimizeReturns = true;
+    options.optimizeCalls = false;
+
+
+
+
+    // // Do not call applySafeCompilationOptions(options) because the call can
+    // // create possible conflicts between multiple diagnostic groups.
+
+    // // All the safe optimizations.
+    // options.dependencyOptions.setDependencySorting(true);
+    // options.closurePass = true;
+    // options.foldConstants = true;
+    // options.coalesceVariableNames = true;
+    // options.deadAssignmentElimination = true;
+    // options.setExtractPrototypeMemberDeclarations(true);
+    // options.collapseVariableDeclarations = true;
+    // options.convertToDottedProperties = true;
+    // options.labelRenaming = true;
+    // options.removeDeadCode = true;
+    // options.optimizeArgumentsArray = true;
+    // options.collapseObjectLiterals = true;
+    // options.protectHiddenSideEffects = true;
+
+    // // All the advanced optimizations.
+    // options.removeClosureAsserts = true;
+    // options.reserveRawExports = true;
+    // // We disable VariableRenamingPolicy for J2ME because we need symbols when profiling release builds.
+    // options.setRenamingPolicy(
+    //         VariableRenamingPolicy.OFF, PropertyRenamingPolicy.OFF);
+    // options.shadowVariables = true;
+    // options.collapseAnonymousFunctions = true;
+    // options.collapseProperties = true;
+    // options.checkGlobalThisLevel = CheckLevel.WARNING;
+    // options.rewriteFunctionExpressions = false;
+    // options.inlineConstantVars = true;
+    // options.setInlineFunctions(Reach.ALL);
+    // options.setAssumeClosuresOnlyCaptureReferences(false);
+    // options.inlineGetters = true;
+    // options.setInlineVariables(Reach.ALL);
+    // options.flowSensitiveInlineVariables = true;
+    // options.computeFunctionSideEffects = true;
+
+    // // Remove unused vars also removes unused functions.
+    // options.setRemoveUnusedVariables(Reach.LOCAL_ONLY);
+
+    // // Move code around based on the defined modules.
+    // options.crossModuleCodeMotion = true;
+    // options.crossModuleMethodMotion = true;
+
+    // // Call optimizations
+    // options.devirtualizePrototypeMethods = true;
+    // options.optimizeParameters = true;
+    // options.optimizeReturns = true;
+
+    // The following optimizations break Shumway builds and need further investigation:
+    //   options.removeUnusedPrototypeProperties = true;
+    //   options.removeUnusedPrototypePropertiesInExterns = true;
+    //   options.removeUnusedClassProperties = true;
+    //   options.smartNameRemoval = true;
+    //   options.optimizeCalls = true;
   }
 
   /**

@@ -358,7 +358,9 @@ public class CommandLineRunner extends
         usage = "Specifies the compilation level to use. Options: " +
             "WHITESPACE_ONLY, " +
             "SIMPLE, " +
-            "ADVANCED")
+            "ADVANCED, " +
+            "SHUMWAY_OPTIMIZATIONS, " + 
+            "J2ME_OPTIMIZATIONS")
     private String compilationLevel = "SIMPLE";
     private CompilationLevel compilationLevelParsed = null;
 
@@ -594,17 +596,15 @@ public class CommandLineRunner extends
     private final CmdLineParser parser;
 
     private static final Map<String, CompilationLevel> COMPILATION_LEVEL_MAP =
-        ImmutableMap.of(
-            "WHITESPACE_ONLY",
-            CompilationLevel.WHITESPACE_ONLY,
-            "SIMPLE",
-            CompilationLevel.SIMPLE_OPTIMIZATIONS,
-            "SIMPLE_OPTIMIZATIONS",
-            CompilationLevel.SIMPLE_OPTIMIZATIONS,
-            "ADVANCED",
-            CompilationLevel.ADVANCED_OPTIMIZATIONS,
-            "ADVANCED_OPTIMIZATIONS",
-            CompilationLevel.ADVANCED_OPTIMIZATIONS);
+        ImmutableMap.<String, CompilationLevel>builder()
+            .put("WHITESPACE_ONLY", CompilationLevel.WHITESPACE_ONLY)
+            .put("SIMPLE", CompilationLevel.SIMPLE_OPTIMIZATIONS)
+            .put("SIMPLE_OPTIMIZATIONS", CompilationLevel.SIMPLE_OPTIMIZATIONS)
+            .put("ADVANCED", CompilationLevel.ADVANCED_OPTIMIZATIONS)
+            .put("ADVANCED_OPTIMIZATIONS", CompilationLevel.ADVANCED_OPTIMIZATIONS)
+            .put("SHUMWAY_OPTIMIZATIONS", CompilationLevel.SHUMWAY_OPTIMIZATIONS)
+            .put("J2ME_OPTIMIZATIONS", CompilationLevel.J2ME_OPTIMIZATIONS)
+            .build();
 
     Flags() {
       parser = new CmdLineParser(this);
